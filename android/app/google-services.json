@@ -1,0 +1,48 @@
+{
+  "project_info": {
+    "project_number": "88288255085",
+    "project_id": "hhc-hms",
+    "storage_bucket": "hhc-hms.appspot.com"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:88288255085:android:acd89de828d8cd2a22b364",
+        "android_client_info": {
+          "package_name": "com.healinghandsclinic.hms"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyDse_H_vo2P2yF3nEjVF-S8NK-sK6k74I8"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    },
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:88288255085:android:88e7fe0f4d7823a822b364",
+        "android_client_info": {
+          "package_name": "com.hms"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyDse_H_vo2P2yF3nEjVF-S8NK-sK6k74I8"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
