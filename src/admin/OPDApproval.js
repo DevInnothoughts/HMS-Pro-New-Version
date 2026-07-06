@@ -34,12 +34,14 @@ const getYesterday = () => {
   return formatted;
 };
 
-const OPDApproval = ({ navigation }) => {
+const OPDApproval = () => {
   const location = useSelector(state => state.location.value);
   const [dailyOPDReport, setDailyOPDReport] = useState([]);
   const [detailedData, setDetailedData] = useState([]);
   const [overallCollection, setOverallCollection] = useState([]);
+  const [opdCollection, setOpdCollection] = useState([]);
   const [labCollection, setLabCollection] = useState([]);
+  const [pharmacyCollection, setPharmacyCollection] = useState([]);
   const [testReport, setTestReport] = useState([]);
   const [loading, setLoading] = useState(false);
   const [fromDate, setFromDate] = useState(getYesterday());
@@ -65,7 +67,7 @@ const OPDApproval = ({ navigation }) => {
       setLoading(true);
 
       fetch(
-        `${BACKEND_URL}/DailyOPD?location=${location}&date=${fromDate}`,
+        `${BACKEND_URL}/DailyOPD/v1?location=${location}&date=${fromDate}`,
         requestOptions,
       )
         .then(response => response.json())
@@ -79,7 +81,9 @@ const OPDApproval = ({ navigation }) => {
           setDetailedData(res.detailedData);
           setOverallCollection(res.overallCollection);
           setLabCollection(res.labCollection);
+          setPharmacyCollection(res.pharmacyCollection);
           setTestReport(res.testReport);
+          setOpdCollection(res.opdCollection);
         })
         .finally(() => setLoading(false));
     } catch (error) {
@@ -124,14 +128,14 @@ const OPDApproval = ({ navigation }) => {
         <View style={styles.tableContainer}>
           <Table borderStyle={styles.border}>
             <Row
-              data={['New', 'Follow UP', 'PO', 'PROCTOSCOPY', 'TOTAL']}
-              flexArr={[0.9, 1, 0.9, 1.2, 1]}
+              data={['New', 'Follow UP', 'PO', 'PROCTOSCOPY', 'MCDPA', 'TOTAL']}
+              flexArr={[0.9, 1, 0.9, 1.2, 1, 1]}
               style={styles.head}
               textStyle={styles.headerText}
             />
             <Row
               data={dailyOPDReport[0]}
-              flexArr={[0.9, 1, 0.9, 1.2, 1]}
+              flexArr={[0.9, 1, 0.9, 1.2, 1, 1]}
               style={styles.row}
               textStyle={styles.text}
             />
@@ -150,22 +154,29 @@ const OPDApproval = ({ navigation }) => {
         <View style={styles.tableContainer}>
           <Table borderStyle={styles.border}>
             <Row
-              data={['', 'New', 'Follow UP', 'PO', 'TOTAL']}
-              flexArr={[1, 1, 1.1, 0.9, 1]}
+              data={['', 'New', 'Follow UP', 'PO', 'MCDPA', 'TOTAL']}
+              flexArr={[0.825, 1, 1.1, 0.9, 1, 1]}
               style={styles.head}
               textStyle={styles.headerText}
             />
             <TableWrapper style={{ flexDirection: 'row' }}>
               <Col
-                data={['DNC', 'DNP', 'DNW', 'DNT', 'WALK-IN']}
+                data={[
+                  'DNC',
+                  'DNP',
+                  'DNW',
+                  'DNT',
+                  'WALK-IN',
+                  'ONLY REGISTRATION',
+                ]}
                 style={{ flex: 1, backgroundColor: '#F1FDE9FF' }}
-                heightArr={[45, 45, 45, 45, 45]}
+                heightArr={[45, 45, 45, 45, 45, 45]}
                 textStyle={styles.headerText}
               />
               <Rows
                 data={detailedData}
                 style={styles.row}
-                flexArr={[1, 1.1, 0.9, 1]}
+                flexArr={[1, 1.1, 0.9, 1, 1, 1]}
                 textStyle={styles.text}
               />
             </TableWrapper>
@@ -206,7 +217,7 @@ const OPDApproval = ({ navigation }) => {
         )}
         {/* OPD Collection Details */}
         <View style={styles.tableContainer}>
-          <Text style={styles.header}>Overall Collection Detail (Rs)</Text>
+          <Text style={styles.header}>OPD Collection Detail (Rs)</Text>
           <Table borderStyle={styles.border}>
             <Row
               data={['Type', 'Amount']}
@@ -216,7 +227,7 @@ const OPDApproval = ({ navigation }) => {
             />
             <TableWrapper style={{ flexDirection: 'row' }}>
               <Rows
-                data={overallCollection}
+                data={opdCollection}
                 style={styles.row}
                 flexArr={[0.8, 0.9]}
                 textStyle={styles.text}
@@ -225,7 +236,7 @@ const OPDApproval = ({ navigation }) => {
           </Table>
         </View>
 
-        {/* OPD Collection Details */}
+        {/* LAB Collection Details */}
         <View style={styles.tableContainer}>
           <Text style={styles.header}>Lab Collection Detail (Rs)</Text>
           <Table borderStyle={styles.border}>
@@ -238,6 +249,48 @@ const OPDApproval = ({ navigation }) => {
             <TableWrapper style={{ flexDirection: 'row' }}>
               <Rows
                 data={labCollection}
+                style={styles.row}
+                flexArr={[0.8, 0.9]}
+                textStyle={styles.text}
+              />
+            </TableWrapper>
+          </Table>
+        </View>
+
+        {/* Pharmacy Collection Details */}
+        <View style={styles.tableContainer}>
+          <Text style={styles.header}>Pharmacy Collection Detail (Rs)</Text>
+          <Table borderStyle={styles.border}>
+            <Row
+              data={['Type', 'Amount']}
+              flexArr={[0.8, 0.9]}
+              style={styles.head}
+              textStyle={styles.headerText}
+            />
+            <TableWrapper style={{ flexDirection: 'row' }}>
+              <Rows
+                data={pharmacyCollection}
+                style={styles.row}
+                flexArr={[0.8, 0.9]}
+                textStyle={styles.text}
+              />
+            </TableWrapper>
+          </Table>
+        </View>
+
+        {/* Overall Collection Details */}
+        <View style={styles.tableContainer}>
+          <Text style={styles.header}>Overall Collection Detail (Rs)</Text>
+          <Table borderStyle={styles.border}>
+            <Row
+              data={['Type', 'Amount']}
+              flexArr={[0.8, 0.9]}
+              style={styles.head}
+              textStyle={styles.headerText}
+            />
+            <TableWrapper style={{ flexDirection: 'row' }}>
+              <Rows
+                data={overallCollection}
                 style={styles.row}
                 flexArr={[0.8, 0.9]}
                 textStyle={styles.text}

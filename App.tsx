@@ -60,7 +60,11 @@ import PharmacyInvoiceScreen from './src/admin/EvitalPharmacyData';
 import ReportScreen from './src/admin/ReportScreen';
 import NpsPatientList from './src/admin/NpsPatientList';
 import PharmacyAnalysis from './src/admin/PharmacyAnalysis';
+import IHXPatientTracker from './src/admin/IHXPatientTracker';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
+import DoctorPerformanceBranchList from './src/admin/DoctorPerformanceBranchList';
+import DoctorPerformance from './src/admin/DoctorPerformance';
+
 const Stack = createNativeStackNavigator();
 
 function App(): React.JSX.Element {
@@ -456,6 +460,70 @@ function App(): React.JSX.Element {
                 options={{
                   headerShown: false,
                 }}
+              />
+              <Stack.Screen
+                name="IHXDataAnalysis"
+                component={IHXPatientTracker}
+                options={{
+                  headerShown: false,
+                }}
+              />
+              <Stack.Screen
+                name="conditionwiseReport"
+                component={require('./src/admin/SpecialityAnalytics').default}
+                options={{
+                  headerShown: false,
+                }}
+              />
+              <Stack.Screen
+                name="leadsStats"
+                component={require('./src/adAgency/AdAgencyHome').default}
+                options={{
+                  headerShown: false,
+                }}
+              />
+
+              <Stack.Screen
+                name="summaryReport"
+                component={require('./src/admin/SummaryReportScreen').default}
+                options={{
+                  headerShown: false,
+                }}
+              />
+              <Stack.Screen
+                name="LeadStatsReport"
+                component={require('./src/admin/LeadsStatsReport').default}
+                options={{
+                  headerShown: false,
+                }}
+              />
+              <Stack.Screen
+                name="PerformanceTracking"
+                component={
+                  require('./src/admin/TargetComparisonScreen').default
+                }
+                options={{
+                  headerShown: false,
+                }}
+              />
+              <Stack.Screen
+                name="BranchTargetDetail"
+                component={
+                  require('./src/admin/BranchTargetDetailScreen').default
+                }
+                options={{
+                  headerShown: false,
+                }}
+              />
+              <Stack.Screen
+                name="DoctorPerformanceBranchList"
+                component={DoctorPerformanceBranchList}
+                options={{ headerShown: false }}
+              />
+              <Stack.Screen
+                name="DoctorPerformance"
+                component={DoctorPerformance}
+                options={{ headerShown: false }}
               />
             </Stack.Navigator>
           </NavigationContainer>

@@ -37,6 +37,7 @@ const DailyOPDReport = ({ navigation }) => {
   const [dailyOPDReport, setDailyOPDReport] = useState([]);
   const [detailedData, setDetailedData] = useState([]);
   const [overallCollection, setOverallCollection] = useState([]);
+  const [opdCollection, setOpdCollection] = useState([]);
   const [labCollection, setLabCollection] = useState([]);
   const [pharmacyCollection, setPharmacyCollection] = useState([]);
   const [testReport, setTestReport] = useState([]);
@@ -82,7 +83,7 @@ const DailyOPDReport = ({ navigation }) => {
       setLoading(true);
       setLoading1(true);
       fetch(
-        `${BACKEND_URL}/DailyOPD?location=${location}&date=${fromDate}`,
+        `${BACKEND_URL}/DailyOPD/v1?location=${location}&date=${fromDate}`,
         requestOptions,
       )
         .then(response => response.json())
@@ -98,6 +99,7 @@ const DailyOPDReport = ({ navigation }) => {
           setLabCollection(res.labCollection);
           setPharmacyCollection(res.pharmacyCollection);
           setTestReport(res.testReport);
+          setOpdCollection(res.opdCollection);
         })
         .finally(() => setLoading(false));
     } catch (error) {
@@ -177,14 +179,14 @@ const DailyOPDReport = ({ navigation }) => {
         <View style={styles.tableContainer}>
           <Table borderStyle={styles.border}>
             <Row
-              data={['New', 'Follow UP', 'PO', 'PROCTOSCOPY', 'TOTAL']}
-              flexArr={[0.9, 1, 0.9, 1.2, 1]}
+              data={['New', 'FU', 'PO', 'PROCTOSCOPY', 'MCDPA', 'TOTAL']}
+              flexArr={[0.9, 1, 0.9, 1.2, 1, 1]}
               style={styles.head}
               textStyle={styles.headerText}
             />
             <Row
               data={dailyOPDReport[0]}
-              flexArr={[0.9, 1, 0.9, 1.2, 1]}
+              flexArr={[0.9, 1, 0.9, 1.2, 1, 1]}
               style={styles.row}
               textStyle={styles.text}
             />
@@ -203,22 +205,29 @@ const DailyOPDReport = ({ navigation }) => {
         <View style={styles.tableContainer}>
           <Table borderStyle={styles.border}>
             <Row
-              data={['', 'New', 'Follow UP', 'PO', 'TOTAL']}
-              flexArr={[1, 1, 1.1, 0.9, 1]}
+              data={['', 'New', 'Follow UP', 'PO', 'MCDPA', 'TOTAL']}
+              flexArr={[0.825, 1, 1.1, 0.9, 1, 1]}
               style={styles.head}
               textStyle={styles.headerText}
             />
             <TableWrapper style={{ flexDirection: 'row' }}>
               <Col
-                data={['DNC', 'DNP', 'DNW', 'DNT', 'WALK-IN']}
+                data={[
+                  'DNC',
+                  'DNP',
+                  'DNW',
+                  'DNT',
+                  'WALK-IN',
+                  'ONLY REGISTRATION',
+                ]}
                 style={{ flex: 1, backgroundColor: '#F1FDE9FF' }}
-                heightArr={[45, 45, 45, 45, 45]}
+                heightArr={[45, 45, 45, 45, 45, 45]}
                 textStyle={styles.headerText}
               />
               <Rows
                 data={detailedData}
                 style={styles.row}
-                flexArr={[1, 1.1, 0.9, 1]}
+                flexArr={[1, 1.1, 0.9, 1, 1, 1]}
                 textStyle={styles.text}
               />
             </TableWrapper>
@@ -259,23 +268,23 @@ const DailyOPDReport = ({ navigation }) => {
         )}
         {/* OPD Collection Details */}
         <View style={styles.tableContainer}>
-          <Text style={styles.header}>Overall Collection Detail (Rs)</Text>
+          <Text style={styles.header}>OPD Collection Detail (Rs)</Text>
           <Table borderStyle={styles.border}>
             <Row
-              data={['Type', 'Amount', 'Action']}
-              flexArr={[0.8, 0.9, 1.3]}
+              data={['Type', 'Amount']}
+              flexArr={[0.8, 0.9]}
               style={styles.head}
               textStyle={styles.headerText}
             />
             <TableWrapper style={{ flexDirection: 'row' }}>
               <Rows
-                data={overallCollection}
+                data={opdCollection}
                 style={styles.row}
                 flexArr={[0.8, 0.9]}
                 textStyle={styles.text}
               />
-              <Col
-                data={overallCollection.map((_, index) => (
+              {/* <Col
+                data={opdCollection.map((_, index) => (
                   <Checkbox.Item
                     label="Confirm"
                     position="leading"
@@ -289,7 +298,7 @@ const DailyOPDReport = ({ navigation }) => {
                 style={{ flex: 1.3, backgroundColor: 'transparent' }}
                 heightArr={[45, 45, 45, 45]}
                 textStyle={styles.headerText}
-              />
+              /> */}
             </TableWrapper>
           </Table>
         </View>
@@ -299,8 +308,8 @@ const DailyOPDReport = ({ navigation }) => {
           <Text style={styles.header}>Lab Collection Detail (Rs)</Text>
           <Table borderStyle={styles.border}>
             <Row
-              data={['Type', 'Amount', 'Action']}
-              flexArr={[0.8, 0.9, 1.3]}
+              data={['Type', 'Amount']}
+              flexArr={[0.8, 0.9]}
               style={styles.head}
               textStyle={styles.headerText}
             />
@@ -311,7 +320,7 @@ const DailyOPDReport = ({ navigation }) => {
                 flexArr={[0.8, 0.9]}
                 textStyle={styles.text}
               />
-              <Col
+              {/* <Col
                 data={labCollection.map((_, index) => (
                   <Checkbox.Item
                     label="Confirm"
@@ -326,7 +335,7 @@ const DailyOPDReport = ({ navigation }) => {
                 style={{ flex: 1.3, backgroundColor: 'transparent' }}
                 heightArr={[45, 45, 45, 45]}
                 textStyle={styles.headerText}
-              />
+              /> */}
             </TableWrapper>
           </Table>
         </View>
@@ -336,8 +345,8 @@ const DailyOPDReport = ({ navigation }) => {
           <Text style={styles.header}>Pharmacy Collection Detail (Rs)</Text>
           <Table borderStyle={styles.border}>
             <Row
-              data={['Type', 'Amount', 'Action']}
-              flexArr={[0.8, 0.9, 1.3]}
+              data={['Type', 'Amount']}
+              flexArr={[0.8, 0.9]}
               style={styles.head}
               textStyle={styles.headerText}
             />
@@ -348,7 +357,7 @@ const DailyOPDReport = ({ navigation }) => {
                 flexArr={[0.8, 0.9]}
                 textStyle={styles.text}
               />
-              <Col
+              {/* <Col
                 data={pharmacyCollection.map((_, index) => (
                   <Checkbox.Item
                     label="Confirm"
@@ -363,7 +372,44 @@ const DailyOPDReport = ({ navigation }) => {
                 style={{ flex: 1.3, backgroundColor: 'transparent' }}
                 heightArr={[45, 45, 45, 45]}
                 textStyle={styles.headerText}
+              /> */}
+            </TableWrapper>
+          </Table>
+        </View>
+
+        {/* Overall Collection Details */}
+        <View style={styles.tableContainer}>
+          <Text style={styles.header}>Overall Collection Detail (Rs)</Text>
+          <Table borderStyle={styles.border}>
+            <Row
+              data={['Type', 'Amount']}
+              flexArr={[0.8, 0.9]}
+              style={styles.head}
+              textStyle={styles.headerText}
+            />
+            <TableWrapper style={{ flexDirection: 'row' }}>
+              <Rows
+                data={overallCollection}
+                style={styles.row}
+                flexArr={[0.8, 0.9]}
+                textStyle={styles.text}
               />
+              {/* <Col
+                data={overallCollection.map((_, index) => (
+                  <Checkbox.Item
+                    label="Confirm"
+                    position="leading"
+                    labelStyle={styles.text}
+                    rippleColor={'#F1FDE9FF'}
+                    status={checked[index] ? 'checked' : 'unchecked'}
+                    onPress={() => handleCheckboxChange(index, checked[index])}
+                    color="#14923EFF" // Customize color if needed
+                  />
+                ))}
+                style={{ flex: 1.3, backgroundColor: 'transparent' }}
+                heightArr={[45, 45, 45, 45]}
+                textStyle={styles.headerText}
+              /> */}
             </TableWrapper>
           </Table>
         </View>

@@ -212,7 +212,7 @@ const styles = StyleSheet.create({
     alignItems: 'stretch', // ✅ allow full width
   },
   headerContainer: {
-    marginVertical: 3,
+    marginVertical: 10,
     paddingHorizontal: 10,
     width: '100%',
     flexDirection: 'row',

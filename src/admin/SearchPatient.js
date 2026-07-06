@@ -17,7 +17,8 @@ import {
   Card,
   Text,
   Button,
-  RadioButton,
+  Avatar,
+  Divider,
   Portal,
   Dialog,
   ActivityIndicator,
@@ -25,6 +26,76 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useSelector } from 'react-redux';
 
+/* -------------------------------------------------------------------------- */
+/*  Theme                                                                     */
+/* -------------------------------------------------------------------------- */
+const COLORS = {
+  primary: '#184D67',
+  primaryDark: '#0F3A4E',
+  accent: '#379AE6',
+  bg: '#F2F6F9',
+  card: '#FFFFFF',
+  border: '#E4EBF0',
+  textPrimary: '#1B2B34',
+  textSecondary: '#64798A',
+  textMuted: '#9AAAB6',
+  accentSoft: '#EAF4FB',
+};
+
+/* -------------------------------------------------------------------------- */
+/*  Helpers                                                                   */
+/* -------------------------------------------------------------------------- */
+const isNA = value => {
+  if (value === null || value === undefined) return true;
+  const s = String(value).trim().toLowerCase();
+  return s === '' || s === 'na' || s === 'n/a' || s === 'null' || s === '0';
+};
+
+const show = (value, fallback = '—') =>
+  isNA(value) ? fallback : String(value).trim();
+
+const toTitleCase = str =>
+  !str
+    ? ''
+    : String(str)
+        .toLowerCase()
+        .replace(/\b\w/g, c => c.toUpperCase());
+
+const getInitials = name => {
+  if (!name) return '?';
+  const parts = String(name).trim().split(/\s+/);
+  const first = parts[0]?.[0] || '';
+  const last = parts.length > 1 ? parts[parts.length - 1][0] : '';
+  return (first + last).toUpperCase();
+};
+
+const formatDate = value => {
+  if (isNA(value)) return '—';
+  const d = new Date(value);
+  return isNaN(d.getTime())
+    ? String(value)
+    : d.toLocaleDateString('en-GB', {
+        day: '2-digit',
+        month: 'short',
+        year: 'numeric',
+      });
+};
+
+/* -------------------------------------------------------------------------- */
+/*  Small presentational components                                           */
+/* -------------------------------------------------------------------------- */
+const Stat = ({ label, value }) => (
+  <View style={styles.stat}>
+    <Text style={styles.statValue} numberOfLines={1}>
+      {value}
+    </Text>
+    <Text style={styles.statLabel}>{label}</Text>
+  </View>
+);
+
+/* -------------------------------------------------------------------------- */
+/*  Screen                                                                    */
+/* -------------------------------------------------------------------------- */
 const SearchPatient = ({ navigation }) => {
   const location = useSelector(state => state.location.value);
   const [page, setPage] = useState(0);
@@ -38,6 +109,7 @@ const SearchPatient = ({ navigation }) => {
   const [loading1, setLoading1] = useState(false);
   const [loading, setLoading] = useState(false);
   const [expandedPatientId, setExpandedPatientId] = useState(null);
+  const [searched, setSearched] = useState(false);
 
   const BACKEND_URL = 'https://wedoc.in/hms';
 
@@ -58,27 +130,27 @@ const SearchPatient = ({ navigation }) => {
     }
   };
 
-  const fetchPatientData = async location => {
+  const fetchPatientData = async loc => {
     try {
       setLoading(true);
       const response = await fetch(
-        `${BACKEND_URL}/Patient?location=${location}&${searchBy}=${encodeURIComponent(
+        `${BACKEND_URL}/Patient?location=${loc}&${searchBy}=${encodeURIComponent(
           searchParam,
         )}`,
         {
           method: 'GET',
-          headers: {
-            'Content-Type': 'application/json',
-          },
+          headers: { 'Content-Type': 'application/json' },
         },
       );
       const res = await response.json();
-      //console.log('Patient details: ', res);
-      setPatientData(res);
+      setPatientData(Array.isArray(res) ? res : []);
+      setPage(0);
+      setExpandedPatientId(null);
     } catch (error) {
       console.log('Error fetching patient data: ', error);
     } finally {
       setLoading(false);
+      setSearched(true);
     }
   };
 
@@ -94,458 +166,572 @@ const SearchPatient = ({ navigation }) => {
   };
 
   const handleClick = async () => {
+    if (!searchParam.trim()) return;
     await fetchPatient();
   };
 
   const hadlePatientClick = patient => {
-    //console.log('Selected:', patient);
     navigation.navigate('PatientDetails', { patient });
   };
 
-  // Toggle the expanded state
   const toggleExpandPatient = id => {
     LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
     setExpandedPatientId(expandedPatientId === id ? null : id);
   };
 
+  const totalPages = Math.max(1, Math.ceil(patientData.length / itemsPerPage));
+  const currentPage = page + 1;
+
   return (
     <SafeAreaView style={styles.maincontainer} edges={['top', 'bottom']}>
-      <View style={styles.card}>
-        <View>
-          <View style={styles.headerContainer}>
-            <TouchableOpacity
-              style={{ width: '25%' }}
-              onPress={() => navigation.goBack()}
+      {/* ---- Header ---- */}
+      <View style={styles.headerContainer}>
+        <TouchableOpacity
+          style={styles.backBtn}
+          onPress={() => navigation.goBack()}
+        >
+          <Image
+            style={styles.backIcon}
+            source={require('../../assets/back.png')}
+          />
+        </TouchableOpacity>
+        <Text style={styles.headerTitle}>Search Patient</Text>
+        <View style={styles.backBtn} />
+      </View>
+
+      {/* ---- Search card ---- */}
+      <View style={styles.searchCard}>
+        <View style={styles.segment}>
+          <TouchableOpacity
+            style={[
+              styles.segmentBtn,
+              searchBy === 'name' && styles.segmentBtnActive,
+            ]}
+            onPress={() => setSearchBy('name')}
+          >
+            <Text
+              style={[
+                styles.segmentText,
+                searchBy === 'name' && styles.segmentTextActive,
+              ]}
             >
-              <Image
-                style={{
-                  height: 35,
-                  width: 35,
-                  tintColor: '#184D67',
-                }}
-                source={require('../../assets/back.png')}
-              />
-            </TouchableOpacity>
-            <Text style={styles.textContainer}>Search Patient</Text>
-            <Text style={{ ...styles.textContainer, width: '25%' }}> </Text>
-          </View>
+              By Name
+            </Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={[
+              styles.segmentBtn,
+              searchBy === 'mobile' && styles.segmentBtnActive,
+            ]}
+            onPress={() => setSearchBy('mobile')}
+          >
+            <Text
+              style={[
+                styles.segmentText,
+                searchBy === 'mobile' && styles.segmentTextActive,
+              ]}
+            >
+              By Mobile
+            </Text>
+          </TouchableOpacity>
         </View>
-        <View style={styles.header}>
-          <View style={styles.radioGroup}>
-            <View
-              style={{
-                display: 'flex',
-                width: '100%',
-                flexDirection: 'row',
-                justifyContent: 'space-around',
-              }}
-            >
-              <View style={styles.radioContainer}>
-                <RadioButton
-                  value="name"
-                  status={searchBy === 'name' ? 'checked' : 'unchecked'}
-                  onPress={() => setSearchBy('name')}
-                />
-                <Text style={styles.radioText}>By Name</Text>
-              </View>
-              <View style={styles.radioContainer}>
-                <RadioButton
-                  value="mobile"
-                  status={searchBy === 'mobile' ? 'checked' : 'unchecked'}
-                  onPress={() => setSearchBy('mobile')}
-                />
-                <Text style={styles.radioText}>By Mobile</Text>
-              </View>
-            </View>
-            <View
-              style={{
-                display: 'flex',
-                flexDirection: 'row',
-                justifyContent: 'space-around',
-                alignItems: 'center',
-                marginVertical: 5,
-                width: '100%',
-              }}
-            >
-              <TextInput
-                style={styles.input}
-                placeholder={
-                  searchBy === 'name'
-                    ? 'Enter patient name'
-                    : 'Enter Mobile number'
-                }
-                placeholderTextColor={'#777'}
-                onChangeText={text => setSearchParam(text)}
-                value={searchParam}
-              />
 
-              <TouchableOpacity
-                onPress={() => {
-                  handleClick();
-                }}
-                style={{
-                  height: 50,
-                  width: 90,
-                  borderWidth: 1,
-                  borderRadius: 20,
-                  backgroundColor: '#007bff',
-                  justifyContent: 'center',
-                }}
-              >
-                <Text
-                  style={{ color: '#fff', fontSize: 16, textAlign: 'center' }}
-                >
-                  Search
-                </Text>
-              </TouchableOpacity>
-            </View>
-          </View>
-        </View>
-        {patientData.length > 0 && (
-          <View
-            style={{
-              width: '100%',
-              height: 40,
-              display: 'flex',
-              flexDirection: 'row',
-              alignItems: 'center',
-              justifyContent: 'flex-start',
-              backgroundColor: '#CCC',
-            }}
+        <View style={styles.searchRow}>
+          <TextInput
+            style={styles.input}
+            placeholder={
+              searchBy === 'name' ? 'Enter patient name' : 'Enter mobile number'
+            }
+            placeholderTextColor={COLORS.textMuted}
+            keyboardType={searchBy === 'mobile' ? 'phone-pad' : 'default'}
+            onChangeText={setSearchParam}
+            value={searchParam}
+            returnKeyType="search"
+            onSubmitEditing={handleClick}
+          />
+          <TouchableOpacity
+            onPress={handleClick}
+            disabled={loading1}
+            style={[
+              styles.searchBtn,
+              (!searchParam.trim() || loading1) && styles.searchBtnDisabled,
+            ]}
           >
-            <View style={{ width: '70%', paddingLeft: 15 }}>
-              <Text style={styles.medium}>NAME</Text>
-            </View>
-            <View style={{ width: '20%' }}>
-              <Text style={styles.medium}>UID</Text>
-            </View>
-            <View style={{ width: '10%' }}>
-              <Text> </Text>
-            </View>
-          </View>
-        )}
-        <ScrollView style={styles.scrollView}>
-          <Portal>
-            <Dialog
-              visible={loading}
-              onDismiss={() => setLoading(false)}
-              style={{
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                paddingVertical: 20,
-              }}
-            >
-              <Dialog.Content>
-                <Text variant="bodyMedium">Loading...</Text>
-              </Dialog.Content>
-              <ActivityIndicator
-                animating={loading}
-                size={'large'}
-                color={'#0d7592'}
-              />
-            </Dialog>
-          </Portal>
-          {patientData.length > 0 ? (
-            <>
-              {patientData.slice(from, to).map((item, index) => (
-                <Card
-                  key={index}
-                  style={{
-                    backgroundColor:
-                      expandedPatientId === item.patient_id
-                        ? '#F5F1FEFF'
-                        : '#fff',
-                    marginVertical: 8,
-                    marginHorizontal: 5,
-                    borderRadius: 4,
-                  }}
-                >
-                  <View
-                    style={{
-                      display: 'flex',
-                      width: '100%',
-                      flexDirection: 'column',
-                      justifyContent: 'space-between',
-                      alignItems: 'center',
-                    }}
-                  >
-                    <TouchableOpacity
-                      onPress={() => toggleExpandPatient(item.patient_id)}
-                      key={index}
-                      style={{
-                        width: '100%',
-                        minHeight: 40,
-                        flexDirection: 'row',
-                        justifyContent: 'center',
-                        alignItems: 'center',
-                        marginBottom: 10,
-                      }}
-                    >
-                      <View style={styles.headContainer}>
-                        <View style={{ width: '50%' }}>
-                          <Text style={styles.patientName}>{item.name}</Text>
-                        </View>
-                        <View
-                          style={{
-                            width: '40%',
-                            display: 'flex',
-                            justifyContent: 'flex-start',
-                            alignItems: 'center',
-                          }}
-                        >
-                          <Text style={styles.patientName}>
-                            {item.Uid_no || 'NA'}
-                          </Text>
-                        </View>
-                        <TouchableOpacity
-                          onPress={() => {
-                            hadlePatientClick(item);
-                          }}
-                          style={{
-                            width: '10%',
-                            minHeight: 40,
-                            justifyContent: 'center',
-                            alignItems: 'center',
-                          }}
-                        >
-                          <Image
-                            style={{
-                              height: 28,
-                              width: 28,
-                            }}
-                            source={require('../../assets/enter.png')}
-                          />
-                        </TouchableOpacity>
-                      </View>
-                    </TouchableOpacity>
-                    {expandedPatientId === item.patient_id && (
-                      <View style={styles.detailsContainer}>
-                        <View style={styles.infoContainer}>
-                          <View style={styles.infoItem}>
-                            <Text style={styles.infoLabel}>First Visit</Text>
-                            <Text style={styles.infoText}>
-                              {new Date(item.date).toLocaleDateString()}
-                            </Text>
-                          </View>
-
-                          <View style={styles.infoItem}>
-                            <Text style={styles.infoLabel}>Gender</Text>
-                            <Text style={styles.infoText}>{item.sex}</Text>
-                          </View>
-
-                          <View style={styles.infoItem}>
-                            <Text style={styles.infoLabel}>Age</Text>
-                            <Text style={styles.infoText}>{item.age}</Text>
-                          </View>
-                        </View>
-                        <View style={styles.infoContainer}>
-                          <View style={styles.infoItem}>
-                            <Text style={styles.infoLabel}>Mobile-1</Text>
-                            <Text style={styles.infoText}>{item.phone}</Text>
-                          </View>
-                          <View style={styles.infoItem}>
-                            <Text style={styles.infoLabel}>Mobile-2</Text>
-                            <Text style={styles.infoText}>{item.mobile_2}</Text>
-                          </View>
-                        </View>
-                      </View>
-                    )}
-                  </View>
-                </Card>
-              ))}
-            </>
-          ) : (
-            <View style={styles.noDataContainer}>
-              <Text style={styles.noDataText}>Data not available!</Text>
-            </View>
-          )}
-        </ScrollView>
-        {/* Pagination Controls */}
-        <View style={styles.paginationControls}>
-          <Button
-            mode="outlined"
-            onPress={handlePrevPage}
-            disabled={page === 0}
-            style={{
-              flexDirection: 'row',
-              alignItems: 'center',
-              justifyContent: 'center',
-              backgroundColor: page === 0 ? '#aaa' : 'transparent',
-            }}
-          >
-            <View style={{ alignItems: 'center', justifyContent: 'center' }}>
-              <Image
-                style={{ width: 12, height: 12 }}
-                source={require('../../assets/left.png')}
-              />
-            </View>
-          </Button>
-          <Button
-            mode="outlined"
-            onPress={handleNextPage}
-            disabled={(page + 1) * itemsPerPage >= patientData.length}
-            style={{
-              flexDirection: 'row',
-              alignItems: 'center',
-              justifyContent: 'center',
-              backgroundColor:
-                (page + 1) * itemsPerPage >= patientData.length
-                  ? '#aaa'
-                  : 'transparent',
-            }}
-          >
-            <View style={{ alignItems: 'center', justifyContent: 'center' }}>
-              <Image
-                style={{ width: 12, height: 12 }}
-                source={require('../../assets/right.png')}
-              />
-            </View>
-          </Button>
+            {loading1 ? (
+              <ActivityIndicator size="small" color="#fff" />
+            ) : (
+              <Text style={styles.searchBtnText}>Search</Text>
+            )}
+          </TouchableOpacity>
         </View>
       </View>
+
+      {/* ---- Result count ---- */}
+      {patientData.length > 0 && (
+        <View style={styles.resultBar}>
+          <Text style={styles.resultText}>
+            {patientData.length} result{patientData.length > 1 ? 's' : ''} found
+          </Text>
+        </View>
+      )}
+
+      {/* ---- Results list ---- */}
+      <ScrollView
+        style={styles.scrollView}
+        contentContainerStyle={styles.scrollContent}
+        showsVerticalScrollIndicator={false}
+      >
+        {patientData.length > 0
+          ? patientData.slice(from, to).map((item, index) => {
+              const expanded = expandedPatientId === item.patient_id;
+              return (
+                <Card
+                  key={index}
+                  style={[
+                    styles.resultCard,
+                    expanded && styles.resultCardActive,
+                  ]}
+                >
+                  <TouchableOpacity
+                    activeOpacity={0.7}
+                    onPress={() => toggleExpandPatient(item.patient_id)}
+                    style={styles.resultRow}
+                  >
+                    <Avatar.Text
+                      size={42}
+                      label={getInitials(item.name)}
+                      style={styles.avatar}
+                      labelStyle={styles.avatarLabel}
+                      color="#fff"
+                    />
+                    <View style={styles.resultInfo}>
+                      <Text style={styles.patientName} numberOfLines={1}>
+                        {toTitleCase(item.name)}
+                      </Text>
+                      <Text style={styles.patientUid} numberOfLines={1}>
+                        {show(item.Uid_no, 'UID: NA')}
+                      </Text>
+                    </View>
+
+                    <View
+                      style={[styles.chevron, expanded && styles.chevronUp]}
+                    />
+
+                    <TouchableOpacity
+                      onPress={() => hadlePatientClick(item)}
+                      style={styles.enterBtn}
+                    >
+                      <Image
+                        style={styles.enterIcon}
+                        source={require('../../assets/enter.png')}
+                      />
+                    </TouchableOpacity>
+                  </TouchableOpacity>
+
+                  {expanded && (
+                    <View style={styles.detailsContainer}>
+                      <Divider style={styles.divider} />
+                      <View style={styles.statRow}>
+                        <Stat
+                          label="First Visit"
+                          value={formatDate(item.date)}
+                        />
+                        <View style={styles.statSeparator} />
+                        <Stat label="Gender" value={show(item.sex)} />
+                        <View style={styles.statSeparator} />
+                        <Stat
+                          label="Age"
+                          value={isNA(item.age) ? '—' : `${item.age}`}
+                        />
+                      </View>
+                      <View style={styles.statRow}>
+                        <Stat label="Mobile-1" value={show(item.phone)} />
+                        <View style={styles.statSeparator} />
+                        <Stat label="Mobile-2" value={show(item.mobile_2)} />
+                      </View>
+                      <Button
+                        mode="contained"
+                        onPress={() => hadlePatientClick(item)}
+                        buttonColor={COLORS.primary}
+                        style={styles.viewBtn}
+                        labelStyle={styles.viewBtnLabel}
+                      >
+                        View Full Record
+                      </Button>
+                    </View>
+                  )}
+                </Card>
+              );
+            })
+          : !loading && (
+              <View style={styles.noDataContainer}>
+                <Text style={styles.noDataText}>
+                  {searched
+                    ? 'No patients found'
+                    : 'Search a patient by name or mobile number'}
+                </Text>
+              </View>
+            )}
+      </ScrollView>
+
+      {/* ---- Pagination ---- */}
+      {patientData.length > itemsPerPage && (
+        <View style={styles.paginationControls}>
+          <Button
+            mode="contained"
+            onPress={handlePrevPage}
+            disabled={page === 0}
+            buttonColor={COLORS.primary}
+            style={styles.pageBtn}
+            contentStyle={styles.pageBtnContent}
+          >
+            <Image
+              style={styles.pageIcon}
+              source={require('../../assets/left.png')}
+            />
+          </Button>
+
+          <Text style={styles.pageIndicator}>
+            Page {currentPage} of {totalPages}
+          </Text>
+
+          <Button
+            mode="contained"
+            onPress={handleNextPage}
+            disabled={(page + 1) * itemsPerPage >= patientData.length}
+            buttonColor={COLORS.primary}
+            style={styles.pageBtn}
+            contentStyle={styles.pageBtnContent}
+          >
+            <Image
+              style={styles.pageIcon}
+              source={require('../../assets/right.png')}
+            />
+          </Button>
+        </View>
+      )}
+
+      {/* ---- Loading dialog ---- */}
+      <Portal>
+        <Dialog visible={loading} dismissable={false} style={styles.dialog}>
+          <Dialog.Content style={styles.dialogContent}>
+            <ActivityIndicator
+              animating={loading}
+              size="large"
+              color={COLORS.primary}
+            />
+            <Text style={styles.dialogText}>Searching…</Text>
+          </Dialog.Content>
+        </Dialog>
+      </Portal>
     </SafeAreaView>
   );
 };
 
 export default SearchPatient;
 
+/* -------------------------------------------------------------------------- */
+/*  Styles                                                                    */
+/* -------------------------------------------------------------------------- */
 const styles = StyleSheet.create({
   maincontainer: {
     flex: 1,
     width: '100%',
-    height: '100%',
-    justifyContent: 'center',
-    alignItems: 'center',
-    backgroundColor: '#fff',
+    backgroundColor: COLORS.card,
   },
-  card: {
-    backgroundColor: 'transparent',
-    shadowColor: 'transparent',
-    flex: 1,
-    width: '100%',
-  },
-  header: {
-    width: '100%',
-    backgroundColor: 'transparent',
-    height: 100,
-    paddingBottom: 10,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
+
+  /* Header */
   headerContainer: {
-    marginVertical: 8,
-    paddingHorizontal: 10,
-    width: '100%',
-    height: 50,
     flexDirection: 'row',
+    alignItems: 'center',
     justifyContent: 'space-between',
+    paddingHorizontal: 14,
+    height: 54,
+  },
+  backBtn: {
+    width: 40,
+    height: 40,
     alignItems: 'center',
-    //backgroundColor: '#F2FFF2FF',
+    justifyContent: 'center',
   },
-  title: {
+  backIcon: {
+    height: 26,
+    width: 26,
+    tintColor: COLORS.primary,
+  },
+  headerTitle: {
+    flex: 1,
     textAlign: 'center',
+    fontFamily: 'Lexend-Medium',
+    fontSize: 18,
+    color: COLORS.textPrimary,
+  },
+
+  /* Search card */
+  searchCard: {
+    backgroundColor: COLORS.bg,
+    borderRadius: 16,
+    marginHorizontal: 14,
+    marginTop: 4,
+    marginBottom: 10,
+    padding: 14,
+    borderWidth: 1,
+    borderColor: COLORS.border,
+    shadowColor: '#000',
+    shadowOpacity: 0.06,
+    shadowRadius: 8,
+    shadowOffset: { width: 0, height: 3 },
+    elevation: 2,
+  },
+  segment: {
+    flexDirection: 'row',
+    backgroundColor: COLORS.card,
+    borderRadius: 10,
+    padding: 4,
+    marginBottom: 12,
+  },
+  segmentBtn: {
+    flex: 1,
+    paddingVertical: 9,
+    borderRadius: 8,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  segmentBtnActive: {
+    backgroundColor: COLORS.primary,
+  },
+  segmentText: {
+    fontSize: 14,
+    color: COLORS.textSecondary,
+    fontFamily: 'Lexend-Medium',
+  },
+  segmentTextActive: {
     color: '#fff',
-    fontSize: 20,
-    fontWeight: '600',
   },
-  radioGroup: {
-    width: '100%',
-  },
-  radioContainer: {
+  searchRow: {
     flexDirection: 'row',
     alignItems: 'center',
-  },
-  radioText: {
-    fontSize: 16,
-    fontWeight: '500',
-    color: '#000',
   },
   input: {
-    fontSize: 16,
-    fontWeight: '500',
-    color: '#000',
-    padding: 15,
-    width: '65%',
+    flex: 1,
+    fontSize: 15,
+    color: COLORS.textPrimary,
+    fontFamily: 'Lexend-Regular',
+    paddingHorizontal: 16,
+    height: 48,
     borderWidth: 1,
-    borderRadius: 20,
-    borderTopEndRadius: 20,
-    borderTopLeftRadius: 20,
-    backgroundColor: '#fff',
+    borderColor: COLORS.border,
+    borderRadius: 12,
+    backgroundColor: COLORS.card,
+    marginRight: 10,
   },
+  searchBtn: {
+    height: 48,
+    paddingHorizontal: 20,
+    borderRadius: 12,
+    backgroundColor: COLORS.primary,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  searchBtnDisabled: {
+    backgroundColor: '#9FB4C0',
+  },
+  searchBtnText: {
+    color: '#fff',
+    fontSize: 15,
+    fontFamily: 'Lexend-Medium',
+  },
+
+  /* Result bar */
+  resultBar: {
+    paddingHorizontal: 18,
+    paddingBottom: 6,
+  },
+  resultText: {
+    fontSize: 13,
+    color: COLORS.textSecondary,
+    fontFamily: 'Lexend-Regular',
+  },
+
+  /* Scroll */
   scrollView: {
     flex: 1,
-    height: '70%',
     width: '100%',
   },
-  itemContainer: {
-    backgroundColor: '#f5f5dc',
-    borderBottomColor: '#000',
-    borderBottomWidth: 1,
+  scrollContent: {
+    paddingHorizontal: 14,
+    paddingBottom: 16,
+  },
+
+  /* Result card */
+  resultCard: {
+    backgroundColor: COLORS.card,
+    borderRadius: 12,
+    marginVertical: 6,
     borderWidth: 1,
-    borderRadius: 15,
-    margin: 3,
-    padding: 10,
+    borderColor: COLORS.border,
+  },
+  resultCardActive: {
+    borderColor: COLORS.accent,
+    backgroundColor: '#FBFDFF',
+  },
+  resultRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 12,
+    paddingHorizontal: 12,
+  },
+  avatar: {
+    backgroundColor: COLORS.primary,
+  },
+  avatarLabel: {
+    fontFamily: 'Lexend-Medium',
+    fontSize: 15,
+  },
+  resultInfo: {
+    flex: 1,
+    marginLeft: 12,
   },
   patientName: {
-    fontSize: 14,
+    fontSize: 15,
+    color: COLORS.textPrimary,
     fontFamily: 'Lexend-Medium',
-    lineHeight: 22,
+    lineHeight: 21,
   },
-  detailsContainer: {
-    width: '100%',
+  patientUid: {
+    fontSize: 12.5,
+    color: COLORS.textSecondary,
+    fontFamily: 'Lexend-Regular',
+    marginTop: 2,
   },
-  headContainer: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
+  chevron: {
+    width: 0,
+    height: 0,
+    borderLeftWidth: 5,
+    borderRightWidth: 5,
+    borderTopWidth: 6,
+    borderLeftColor: 'transparent',
+    borderRightColor: 'transparent',
+    borderTopColor: COLORS.textMuted,
+    marginHorizontal: 10,
+  },
+  chevronUp: {
+    transform: [{ rotate: '180deg' }],
+    borderTopColor: COLORS.accent,
+  },
+  enterBtn: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: COLORS.accentSoft,
     alignItems: 'center',
-    margin: 5,
-  },
-  infoContainer: {
-    flexDirection: 'row',
-    justifyContent: 'space-around',
-    marginVertical: 5,
-  },
-  infoItem: {
-    alignItems: 'center',
-  },
-  infoLabel: {
-    fontSize: 14,
-    fontWeight: '500',
-  },
-  infoText: {
-    fontSize: 14,
-  },
-  noDataContainer: {
-    flex: 1,
     justifyContent: 'center',
+  },
+  enterIcon: {
+    height: 20,
+    width: 20,
+    tintColor: COLORS.primary,
+  },
+
+  /* Expanded details */
+  detailsContainer: {
+    paddingHorizontal: 14,
+    paddingBottom: 14,
+  },
+  divider: {
+    backgroundColor: COLORS.border,
+    marginBottom: 12,
+  },
+  statRow: {
+    flexDirection: 'row',
     alignItems: 'center',
-    height: '100%',
-    width: '100%',
+    marginBottom: 10,
+  },
+  stat: {
+    flex: 1,
+    alignItems: 'center',
+  },
+  statSeparator: {
+    width: 1,
+    height: 28,
+    backgroundColor: COLORS.border,
+  },
+  statValue: {
+    fontSize: 14,
+    color: COLORS.textPrimary,
+    fontFamily: 'Lexend-Medium',
+  },
+  statLabel: {
+    fontSize: 11,
+    color: COLORS.textMuted,
+    fontFamily: 'Lexend-Regular',
+    marginTop: 2,
+  },
+  viewBtn: {
+    marginTop: 4,
+    borderRadius: 10,
+  },
+  viewBtnLabel: {
+    fontFamily: 'Lexend-Medium',
+    fontSize: 14,
+  },
+
+  /* Empty state */
+  noDataContainer: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 60,
+    paddingHorizontal: 30,
   },
   noDataText: {
-    fontSize: 22,
-    color: '#000',
+    fontSize: 16,
+    color: COLORS.textMuted,
+    fontFamily: 'Lexend-Regular',
+    textAlign: 'center',
   },
+
+  /* Pagination */
   paginationControls: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
-    margin: 8,
-    height: 42,
-  },
-  paginationButton: {
-    flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 18,
+    paddingVertical: 10,
+    backgroundColor: COLORS.card,
+    borderTopWidth: 1,
+    borderTopColor: COLORS.border,
   },
-  paginationIcon: {
-    width: 10,
-    height: 10,
+  pageBtn: {
+    borderRadius: 10,
+    minWidth: 56,
   },
-  textContainer: {
+  pageBtnContent: {
+    height: 40,
+  },
+  pageIcon: {
+    width: 14,
+    height: 14,
+    tintColor: '#fff',
+  },
+  pageIndicator: {
+    fontSize: 14,
+    color: COLORS.textSecondary,
     fontFamily: 'Lexend-Medium',
-    fontSize: 16,
-    width: '50%',
-    textAlign: 'center',
+  },
+
+  /* Dialog */
+  dialog: {
+    backgroundColor: COLORS.card,
+    borderRadius: 16,
+  },
+  dialogContent: {
+    alignItems: 'center',
+    paddingVertical: 18,
+  },
+  dialogText: {
+    marginTop: 14,
+    fontSize: 15,
+    color: COLORS.textPrimary,
+    fontFamily: 'Lexend-Regular',
   },
 });

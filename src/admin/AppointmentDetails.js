@@ -164,16 +164,19 @@ const AppointmentDetails = ({ navigation }) => {
 
   let totalConfirm = 0;
   let totalPostOp = 0;
+  let totalMCDPA = 0;
   let totalNew = 0;
   let totalFollow = 0;
   let totalNonConfirm = 0;
   let totalNewConfirm = 0;
   let totalPOConfirm = 0;
   let totalFollowConfirm = 0;
+  let totalMCDPAConfirm = 0;
 
   // Calculate totals
   appointmentData.forEach(item => {
     item.patient_type === 'Postoperative' && totalPostOp++;
+    item.patient_type === 'MCDPA' && totalMCDPA++;
     item.patient_type === 'Follow' && totalFollow++;
     item.patient_type === 'New' && totalNew++;
     item.confirm_time !== '0' && totalConfirm++;
@@ -187,6 +190,9 @@ const AppointmentDetails = ({ navigation }) => {
     item.patient_type === 'Follow' &&
       item.confirm_time !== '0' &&
       totalFollowConfirm++;
+    item.patient_type === 'MCDPA' &&
+      item.confirm_time !== '0' &&
+      totalMCDPAConfirm++;
   });
 
   const handlePhoneCall = callNumber => {
@@ -330,6 +336,19 @@ const AppointmentDetails = ({ navigation }) => {
               <Text style={styles.subHeader}>PO(C)</Text>
               <Text style={styles.subHeader}>
                 {totalPostOp}({totalPOConfirm})
+              </Text>
+            </Card>
+            <Card
+              style={{
+                ...styles.card,
+                backgroundColor:
+                  filterCategory === 'MCDPA' ? '#edc6a8ff' : '#FFF3F0FF',
+              }}
+              onPress={() => handleFilter('MCDPA')}
+            >
+              <Text style={styles.subHeader}>MCDPA</Text>
+              <Text style={styles.subHeader}>
+                {totalMCDPA}({totalMCDPAConfirm})
               </Text>
             </Card>
           </View>
@@ -590,6 +609,7 @@ const styles = StyleSheet.create({
     display: 'flex',
     width: '100%',
     justifyContent: 'space-around',
+    flexWrap: 'wrap',
     flexDirection: 'row',
     marginVertical: 5,
   },
@@ -606,9 +626,10 @@ const styles = StyleSheet.create({
     borderRadius: 4,
   },
   card: {
-    minWidth: '22%',
+    minWidth: '30%',
     height: 80,
     paddingHorizontal: 5,
+    marginVertical: 5,
     display: 'flex',
     flexDirection: 'column',
     alignItems: 'flex-start',

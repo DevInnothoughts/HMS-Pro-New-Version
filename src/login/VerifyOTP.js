@@ -1,4 +1,4 @@
-import {useEffect, useState} from 'react';
+import { useEffect, useState } from 'react';
 import {
   Image,
   StyleSheet,
@@ -22,28 +22,28 @@ import {
   useClearByFocusCell,
 } from 'react-native-confirmation-code-field';
 import firestore from '@react-native-firebase/firestore';
-import {useRoute} from '@react-navigation/native';
+import { useRoute } from '@react-navigation/native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import DeviceInfo from 'react-native-device-info';
-import {useDispatch} from 'react-redux';
+import { useDispatch } from 'react-redux';
 import {
   setLocation,
   setLocationArray,
   setRole,
   setSubRole,
 } from '../store/locationSlice';
-import {SafeAreaView} from 'react-native-safe-area-context';
+import { SafeAreaView } from 'react-native-safe-area-context';
 
 const CELL_COUNT = 4;
 const RESEND_OTP_TIME_LIMIT = 60;
 
-const VerifyOTP = ({navigation}) => {
+const VerifyOTP = ({ navigation }) => {
   const route = useRoute();
   const dispatch = useDispatch();
-  const {mobile} = route.params;
+  const { mobile } = route.params;
   const [OTP, setOTP] = useState();
   const [loading, setLoading] = useState(false);
-  const [error, setError] = useState({status: false, message: ''});
+  const [error, setError] = useState({ status: false, message: '' });
   let resendOtpTimerInterval;
 
   const [resendButtonDisabledTime, setResendButtonDisabledTime] = useState(
@@ -110,7 +110,7 @@ const VerifyOTP = ({navigation}) => {
           const uniqueId = await DeviceInfo.getUniqueId();
           data1.deviceId = uniqueId;
           data1.isActive = true;
-          data1.otp = {code: '', validTill: ''};
+          data1.otp = { code: '', validTill: '' };
           await firestore().collection('users').doc(mobile).update(data1);
           await AsyncStorage.setItem('deviceId', uniqueId);
           await AsyncStorage.setItem('mobile', mobile);
@@ -124,7 +124,7 @@ const VerifyOTP = ({navigation}) => {
             dispatch(setLocation(data1.location[0]));
             dispatch(setSubRole(data1.subRole ? data1.subRole : ''));
             setLoading(false);
-            navigation.navigate('AdminHome', {location: data1.location[0]});
+            navigation.navigate('AdminHome', { location: data1.location[0] });
           } else {
             if (data1.role && data1.role === 'Doctor') {
               dispatch(setLocationArray(data1.location));
@@ -132,18 +132,29 @@ const VerifyOTP = ({navigation}) => {
               dispatch(setRole('Doctor'));
               dispatch(setSubRole(''));
               setLoading(false);
-              navigation.navigate('DoctorHome', {location: data1.location});
+              navigation.navigate('DoctorHome', { location: data1.location });
             } else {
-              dispatch(setLocation(data1.location));
-              dispatch(setLocationArray([]));
-              dispatch(setRole(''));
-              dispatch(setSubRole(data1.subRole ? data1.subRole : ''));
-              setLoading(false);
-              navigation.navigate('AdminHome', {location: data1.location});
+              if (data1.role && data1.role === 'AdAgency') {
+                dispatch(setRole(data1.role));
+                dispatch(setLocationArray(data1.location));
+                dispatch(setLocation(data1.location[0]));
+                dispatch(setSubRole(data1.subRole ? data1.subRole : ''));
+                setLoading(false);
+                navigation.navigate('leadsStats', {
+                  location: data1.location[0],
+                });
+              } else {
+                dispatch(setLocation(data1.location));
+                dispatch(setLocationArray([]));
+                dispatch(setRole(''));
+                dispatch(setSubRole(data1.subRole ? data1.subRole : ''));
+                setLoading(false);
+                navigation.navigate('AdminHome', { location: data1.location });
+              }
             }
           }
         } else {
-          setError({status: true, message: 'Please enter valid OTP.'});
+          setError({ status: true, message: 'Please enter valid OTP.' });
         }
       })
       .finally(() => setLoading(false));
@@ -151,7 +162,7 @@ const VerifyOTP = ({navigation}) => {
 
   return (
     <SafeAreaView style={styles.maincontainer} edges={['top', 'bottom']}>
-      <ScrollView style={{flex: 1, width: '100%'}}>
+      <ScrollView style={{ flex: 1, width: '100%' }}>
         <Portal>
           <Dialog
             visible={loading}
@@ -160,7 +171,8 @@ const VerifyOTP = ({navigation}) => {
               alignItems: 'center',
               justifyContent: 'center',
               paddingVertical: 20,
-            }}>
+            }}
+          >
             <Dialog.Content>
               <Text variant="bodyMedium">Verifying OTP...</Text>
             </Dialog.Content>
@@ -179,7 +191,8 @@ const VerifyOTP = ({navigation}) => {
             flexDirection: 'column',
 
             alignItems: 'center',
-          }}>
+          }}
+        >
           <Image
             style={{
               width: 300,
@@ -192,7 +205,7 @@ const VerifyOTP = ({navigation}) => {
           <Text style={styles.title}>Verify the Authorisation Code</Text>
           <Text style={styles.subTitle}>Sent to {mobile}</Text>
           {error.status && (
-            <Text style={{fontSize: 16, color: '#a00', marginVertical: 5}}>
+            <Text style={{ fontSize: 16, color: '#a00', marginVertical: 5 }}>
               {error.message}
             </Text>
           )}
@@ -205,11 +218,12 @@ const VerifyOTP = ({navigation}) => {
             rootStyle={styles.codeFieldRoot}
             keyboardType="number-pad"
             textContentType="oneTimeCode"
-            renderCell={({index, symbol, isFocused}) => (
+            renderCell={({ index, symbol, isFocused }) => (
               <View
                 onLayout={getCellOnLayoutHandler(index)}
                 key={index}
-                style={[styles.cellRoot, isFocused && styles.focusCell]}>
+                style={[styles.cellRoot, isFocused && styles.focusCell]}
+              >
                 <Text style={styles.cellText}>
                   {symbol || (isFocused ? <Cursor /> : null)}
                 </Text>
@@ -228,7 +242,7 @@ const VerifyOTP = ({navigation}) => {
                   {' '}
                   Resend Authorisation Code
                 </Text>
-                <Text style={{marginTop: 40}}>
+                <Text style={{ marginTop: 40 }}>
                   {' '}
                   in {resendButtonDisabledTime} sec
                 </Text>
@@ -247,8 +261,9 @@ const VerifyOTP = ({navigation}) => {
               borderRadius: 25,
               backgroundColor: '#007bff',
             }}
-            labelStyle={{fontSize: 18}}
-            buttonColor="#0d7592">
+            labelStyle={{ fontSize: 18 }}
+            buttonColor="#0d7592"
+          >
             Verify
           </Button>
         </View>

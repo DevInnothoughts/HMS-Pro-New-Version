@@ -1,13 +1,15 @@
 import { useFocusEffect, useRoute } from '@react-navigation/native';
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   Alert,
   BackHandler,
   Image,
   KeyboardAvoidingView,
+  Modal as RNModal,
   Platform,
   RefreshControl,
   ScrollView,
+  StatusBar,
   StyleSheet,
   TouchableOpacity,
   View,
@@ -34,10 +36,15 @@ import ModalDropdown from 'react-native-modal-dropdown';
 import Icon from 'react-native-vector-icons/MaterialIcons'; // Import the vector icon
 import DatePicker from 'react-native-date-picker';
 import { RadioButton, List } from 'react-native-paper';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import {
+  SafeAreaView,
+  useSafeAreaInsets,
+} from 'react-native-safe-area-context';
 
-const getISTDate = () => {
-  const now = new Date();
+import { WebView } from 'react-native-webview';
+
+const getISTDate = date => {
+  const now = new Date(date);
 
   // Convert to milliseconds since UTC and add IST offset
   const istOffsetMs = 5.5 * 60 * 60 * 1000;
@@ -51,6 +58,29 @@ const getISTDate = () => {
   return `${year}-${month}-${day}`;
 };
 
+const Colors = {
+  primary: '#3B6D11',
+  secondary: '#BA7517',
+  error: '#E24B4A',
+  warning: '#EF9F27',
+  background: '#F4F6F4',
+  white: '#fff',
+  border: 'rgba(0,0,0,0.07)',
+  textDark: '#18181A',
+  textMedium: '#6B6A68',
+  textLight: '#A09F9C',
+  success: '#0D6644',
+  info: '#185FA5',
+  purple: '#7A1B78',
+  lightGreen: '#9FE1CB',
+  lightBlue: '#E3EFFE',
+  lightPurple: '#FDE8FB',
+  lightGreenBg: '#D9F2EA',
+  lightGray: '#F0EEE9',
+  lightBeige: '#FAEEDA',
+  lightGrayBg: '#F7F6F2',
+};
+
 const AdminHome = ({ navigation }) => {
   // eslint-disable-next-line prettier/prettier
   const route = useRoute();
@@ -58,11 +88,12 @@ const AdminHome = ({ navigation }) => {
   const location = useSelector(state => state.location.value);
   const locationArray = useSelector(state => state.location.locationArray);
   const role = useSelector(state => state.location.role);
+  const subRole = useSelector(state => state.location.subRole);
   const [refreshing, setRefreshing] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState({ status: false, message: '' });
-  const [from, setFrom] = useState(getISTDate());
-  const [to, setTo] = useState(getISTDate());
+  const [from, setFrom] = useState(getISTDate(new Date()));
+  const [to, setTo] = useState(getISTDate(new Date()));
   const [fromDate, setFromDate] = useState(new Date());
   const [toDate, setToDate] = useState(new Date());
   const [open, setOpen] = useState(false);
@@ -81,6 +112,39 @@ const AdminHome = ({ navigation }) => {
 
   const colors = ['#0a0', '#a00', '#00a', '#fa0', '#0af'];
   const BACKEND_URL = 'https://wedoc.in/hms'; //'https://wedoc.in/hms'; //'https://admin.wedoc.in/ivr'; //
+
+  // ── Superadmin-only HMS AI (opens inside the app in a WebView) ──
+  const HMS_AI_URL = 'https://hms-ai-api.vercel.app';
+  const [aiVisible, setAiVisible] = useState(false);
+  const [aiLoading, setAiLoading] = useState(true);
+  const [aiCanGoBack, setAiCanGoBack] = useState(false);
+  const aiWebViewRef = useRef(null);
+  const aiVisibleRef = useRef(false);
+
+  // safe-area-context returns 0 insets inside a core <Modal> on Android, so
+  // read insets here (provider is available) and pad the modal manually.
+  const insets = useSafeAreaInsets();
+  const aiTopInset =
+    Platform.OS === 'android' ? StatusBar.currentHeight || 0 : insets.top;
+  const aiBottomInset = Platform.OS === 'android' ? 0 : insets.bottom;
+
+  useEffect(() => {
+    aiVisibleRef.current = aiVisible;
+  }, [aiVisible]);
+
+  const openHmsAi = () => {
+    setAiLoading(true);
+    setAiCanGoBack(false);
+    setAiVisible(true);
+  };
+
+  const handleAiBack = () => {
+    if (aiCanGoBack && aiWebViewRef.current) {
+      aiWebViewRef.current.goBack();
+    } else {
+      setAiVisible(false);
+    }
+  };
 
   // const getTodayLocalDateString = () => {
   //   const today = new Date();
@@ -116,6 +180,7 @@ const AdminHome = ({ navigation }) => {
   useFocusEffect(
     useCallback(() => {
       const backAction = () => {
+        if (aiVisibleRef.current) return false; // let the HMS AI modal handle back
         BackHandler.exitApp();
         return true;
       };
@@ -309,8 +374,10 @@ const AdminHome = ({ navigation }) => {
   // Function to handle button click
   const handleClick = async () => {
     try {
-      setFrom(fromDate.toISOString().split('T')[0]);
-      setTo(toDate.toISOString().split('T')[0]);
+      const formattedFromDate = getISTDate(fromDate);
+      const formattedToDate = getISTDate(toDate);
+      setFrom(formattedFromDate);
+      setTo(formattedToDate);
       //await fetchDashboardValues(location);
     } catch (error) {
       console.error('Error exporting data to Excel:', error);
@@ -409,6 +476,65 @@ const AdminHome = ({ navigation }) => {
       </View>
     );
   }
+
+  const HeroBand = () => (
+    <View
+      style={{ flexDirection: 'row', marginBottom: 16, alignItems: 'center' }}
+    >
+      <View style={styles.heroBand}>
+        <View>
+          <Text style={styles.heroLabel}>Total patients served</Text>
+          <Text style={styles.heroCount}>
+            {dashboardValues?.totalPatients?.toLocaleString('en-IN')}
+          </Text>
+        </View>
+      </View>
+      <TouchableOpacity
+        activeOpacity={0.6}
+        style={styles.npsCard}
+        onPress={() => navigation.navigate('NpsPatientList')}
+      >
+        <Text style={styles.npsLabel}>Average NPS</Text>
+        <View
+          style={{
+            flexDirection: 'row',
+            alignItems: 'center',
+            marginBottom: 4,
+          }}
+        >
+          <StarRating rating={dashboardValues?.nps_avg} />
+          <Text style={styles.npsVal}>
+            {dashboardValues?.nps_avg?.toFixed(1) ?? '--'}
+          </Text>
+        </View>
+        <Text style={styles.npsSub}>out of 5</Text>
+      </TouchableOpacity>
+    </View>
+  );
+
+  const StarRating = ({ rating }: { rating: number }) => {
+    const stars = [];
+    for (let i = 1; i <= 5; i++) {
+      const isFilled = i <= Math.ceil(rating);
+      stars.push(
+        <Text
+          key={i}
+          style={{
+            fontSize: 16,
+            color: isFilled ? Colors.secondary : '#D3D1C7',
+            marginRight: 3,
+          }}
+        >
+          {isFilled ? '★' : '☆'}
+        </Text>,
+      );
+    }
+    return (
+      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 3 }}>
+        {stars}
+      </View>
+    );
+  };
 
   return (
     <SafeAreaView style={styles.maincontainer} edges={['top', 'bottom']}>
@@ -590,9 +716,11 @@ const AdminHome = ({ navigation }) => {
           </Dialog>
         </Portal>
 
+        <HeroBand />
+
         <View style={styles.bodycontainer}>
           {/* <Card style={styles.subContainer1}> */}
-          <View
+          {/* <View
             style={{
               ...styles.btnMainContainer,
               justifyContent: 'center',
@@ -605,14 +733,14 @@ const AdminHome = ({ navigation }) => {
             <Text style={{ ...styles.btnText, color: '#14923EFF' }}>
               {dashboardValues?.totalPatients} Patients
             </Text>
-          </View>
+          </View> */}
 
           {role === 'SuperAdmin' && (
             <TouchableOpacity
               onPress={() => navigation.navigate('ApprovalStatus')}
               style={{
                 flexDirection: 'column',
-                marginBottom: 10,
+                marginVertical: 10,
                 borderWidth: 2,
                 borderColor: borderColor,
                 borderRadius: 8,
@@ -639,7 +767,7 @@ const AdminHome = ({ navigation }) => {
             </TouchableOpacity>
           )}
           {/* </Card> */}
-          <TouchableOpacity
+          {/* <TouchableOpacity
             onPress={() => {
               navigation.navigate('NpsPatientList');
             }}
@@ -647,7 +775,7 @@ const AdminHome = ({ navigation }) => {
             // style={styles.buttonContainer}
           >
             <NpsIndicator value={dashboardValues?.nps_avg} />
-          </TouchableOpacity>
+          </TouchableOpacity> */}
           <Card style={styles.subContainer1}>
             <View style={styles.btnMainContainer}>
               <View style={{ width: '36%' }}>
@@ -1138,81 +1266,143 @@ const AdminHome = ({ navigation }) => {
             </TouchableOpacity>
           </View> */}
 
-          <View style={styles.btnMainContainer}>
-            <TouchableOpacity
-              activeOpacity={0.6}
-              style={{ ...styles.btn, backgroundColor: '#DE3B40FF' }}
-              onPress={() =>
-                navigation.navigate('AdminIPDPayment', {
-                  fromDate: from,
-                  toDate: to,
-                })
-              }
-            >
-              <Text style={styles.btnText2}>IPD Collection</Text>
-            </TouchableOpacity>
-            <TouchableOpacity
-              activeOpacity={0.6}
-              style={{ ...styles.btn, backgroundColor: '#379AE6FF' }}
-              onPress={() =>
-                navigation.navigate('AdminOPDPayment', {
-                  fromDate: from,
-                  toDate: to,
-                })
-              }
-            >
-              <Text style={styles.btnText2}>OPD Collection</Text>
-            </TouchableOpacity>
+          <View style={styles.reportGrid}>
+            {[
+              {
+                label: 'IPD Collection',
+                route: 'AdminIPDPayment',
+                params: { fromDate: from, toDate: to },
+                color: '#DE3B40',
+                icon: 'local-hospital',
+              },
+              {
+                label: 'OPD Collection',
+                route: 'AdminOPDPayment',
+                params: { fromDate: from, toDate: to },
+                color: '#379AE6',
+                icon: 'medical-services',
+              },
+              {
+                label: 'OPD + IPD Collection',
+                route: 'AdminOPDIPDPayment',
+                params: { fromDate: from, toDate: to },
+                color: '#374151',
+                icon: 'account-balance-wallet',
+              },
+              {
+                label: 'Daily OPD Report',
+                route: 'DailyOPDPayment',
+                params: { fromDate: from, toDate: from },
+                color: '#F9623E',
+                icon: 'event-note',
+              },
+              {
+                label: 'Pharmacy Analysis',
+                route: 'pharmacyAnalysis',
+                params: { fromDate: from, toDate: to },
+                color: '#8A9A00',
+                icon: 'local-pharmacy',
+              },
+              {
+                label: 'IHX Claim Tracker',
+                route: 'IHXDataAnalysis',
+                params: { fromDate: from, toDate: to },
+                color: '#078C91',
+                icon: 'fact-check',
+              },
+              {
+                label: 'Conditionwise Report',
+                route: 'conditionwiseReport',
+                params: { fromDate: from, toDate: to },
+                color: '#2FA90A',
+                icon: 'analytics',
+              },
+              // {
+              //   label: "Doctor's Performance",
+              //   route: 'DoctorPerformanceBranchList',
+              //   params: { fromDate: from, toDate: to },
+              //   color: '#fb960a',
+              //   icon: 'analytics',
+              // },
+              ...(role === 'SuperAdmin' || subRole === 'CFO'
+                ? [
+                    {
+                      label: 'Billing Summary',
+                      route: 'summaryReport',
+                      params: { fromDate: from, toDate: to },
+                      color: '#7A1B78',
+                      icon: 'summarize',
+                    },
+                    {
+                      label: 'Lead Stats Report',
+                      route: 'LeadStatsReport',
+                      params: { from: from, to: to },
+                      color: '#185FA5',
+                      icon: 'leaderboard',
+                    },
+                  ]
+                : []),
+              ...(role === 'SuperAdmin' ||
+              subRole === 'Cluster Head' ||
+              subRole === 'Owner' ||
+              subRole === 'CFO' ||
+              subRole === 'Director'
+                ? [
+                    {
+                      label: 'Performace Tracker',
+                      route: 'PerformanceTracking',
+                      params: { from: from, to: to },
+                      color: '#0ffe37',
+                      icon: 'trending-up',
+                    },
+                    {
+                      label: 'Report',
+                      route: 'ReportScreen',
+                      params: { fromDate: from, toDate: to },
+                      color: '#489107',
+                      icon: 'assessment',
+                    },
+                  ]
+                : []),
+            ].map(tile => (
+              <TouchableOpacity
+                key={tile.label}
+                activeOpacity={0.7}
+                style={styles.reportTile}
+                onPress={() => navigation.navigate(tile.route, tile.params)}
+              >
+                <View
+                  style={[styles.reportAccent, { backgroundColor: tile.color }]}
+                />
+                <View style={styles.reportBody}>
+                  <View
+                    style={[
+                      styles.reportIconWrap,
+                      { backgroundColor: tile.color + '1A' },
+                    ]}
+                  >
+                    <Icon name={tile.icon} size={20} color={tile.color} />
+                  </View>
+                  <Text style={styles.reportTileText}>{tile.label}</Text>
+                </View>
+              </TouchableOpacity>
+            ))}
           </View>
 
-          <View style={styles.btnMainContainer}>
+          {/* <View style={styles.btnMainContainer}>
             <TouchableOpacity
               activeOpacity={0.6}
-              style={{ ...styles.btn, backgroundColor: '#171A1FFF' }}
+              style={{ ...styles.btn, backgroundColor: 'rgb(7, 140, 145)' }}
               onPress={() =>
-                navigation.navigate('AdminOPDIPDPayment', {
+                navigation.navigate('leadsStats', {
                   fromDate: from,
                   toDate: to,
                 })
               }
             >
-              <Text style={styles.btnText2}>OPD + IPD Collection</Text>
+              <Text style={styles.btnText2}>Leads Stats</Text>
             </TouchableOpacity>
-            <TouchableOpacity
-              activeOpacity={0.6}
-              style={{ ...styles.btn, backgroundColor: '#F9623EFF' }}
-              onPress={() => navigation.navigate('DailyOPDPayment')}
-            >
-              <Text style={styles.btnText2}>Daily OPD Report</Text>
-            </TouchableOpacity>
-          </View>
-
-          <View style={styles.btnMainContainer}>
-            <TouchableOpacity
-              activeOpacity={0.6}
-              style={{ ...styles.btn, backgroundColor: 'rgb(72, 145, 7)' }}
-              onPress={() =>
-                navigation.navigate('ReportScreen', {
-                  fromDate: from,
-                  toDate: to,
-                })
-              }
-            >
-              <Text style={styles.btnText2}>Report</Text>
-            </TouchableOpacity>
-            <TouchableOpacity
-              activeOpacity={0.6}
-              style={{ ...styles.btn, backgroundColor: 'rgb(72, 145, 7)' }}
-              onPress={() =>
-                navigation.navigate('pharmacyAnalysis', {
-                  fromDate: from,
-                  toDate: to,
-                })
-              }
-            >
-              <Text style={styles.btnText2}>Pharmacy Analysis</Text>
-            </TouchableOpacity>
-          </View>
+          </View> */}
         </View>
       </ScrollView>
 
@@ -1390,6 +1580,69 @@ const AdminHome = ({ navigation }) => {
       </Portal>
 
       <BottomTab navigation={navigation} />
+
+      {role === 'SuperAdmin' && (
+        <TouchableOpacity
+          style={styles.aiFab}
+          activeOpacity={0.85}
+          onPress={openHmsAi}
+          accessibilityRole="button"
+          accessibilityLabel="Open HMS AI"
+        >
+          <Icon name="smart-toy" size={22} color={Colors.white} />
+          <Text style={styles.aiFabText}>HMS AI</Text>
+        </TouchableOpacity>
+      )}
+
+      <RNModal
+        visible={aiVisible}
+        animationType="slide"
+        onRequestClose={handleAiBack}
+        statusBarTranslucent
+        presentationStyle="fullScreen"
+      >
+        <View
+          style={[
+            styles.aiModalContainer,
+            { paddingTop: aiTopInset, paddingBottom: aiBottomInset },
+          ]}
+        >
+          <View style={styles.aiHeader}>
+            <TouchableOpacity
+              onPress={handleAiBack}
+              style={styles.aiHeaderBtn}
+              accessibilityLabel="Back"
+            >
+              <Icon name="arrow-back" size={24} color={Colors.textDark} />
+            </TouchableOpacity>
+            <Text style={styles.aiHeaderTitle}>HMS AI</Text>
+            <TouchableOpacity
+              onPress={() => setAiVisible(false)}
+              style={styles.aiHeaderBtn}
+              accessibilityLabel="Close"
+            >
+              <Icon name="close" size={24} color={Colors.textDark} />
+            </TouchableOpacity>
+          </View>
+
+          <View style={{ flex: 1 }}>
+            <WebView
+              ref={aiWebViewRef}
+              source={{ uri: HMS_AI_URL }}
+              onLoadStart={() => setAiLoading(true)}
+              onLoadEnd={() => setAiLoading(false)}
+              onNavigationStateChange={nav => setAiCanGoBack(nav.canGoBack)}
+              startInLoadingState
+              style={{ flex: 1, backgroundColor: Colors.background }}
+            />
+            {aiLoading && (
+              <View style={styles.aiLoader} pointerEvents="none">
+                <ActivityIndicator size="large" color={Colors.primary} />
+              </View>
+            )}
+          </View>
+        </View>
+      </RNModal>
     </SafeAreaView>
   );
 };
@@ -1619,6 +1872,8 @@ const styles = StyleSheet.create({
     fontFamily: 'Lexend-Regular',
   },
   npsCard: {
+    //width: '45%',
+    height: 90,
     backgroundColor: '#EAF7EE',
     borderRadius: 14,
     paddingVertical: 16,
@@ -1647,5 +1902,178 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: '700',
     color: '#14923E',
+  },
+  // Hero band
+  heroBand: {
+    backgroundColor: Colors.primary,
+    width: '43%',
+    height: 90,
+    marginHorizontal: 14,
+    marginTop: 14,
+    borderRadius: 14,
+    paddingVertical: 14,
+    paddingHorizontal: 16,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  heroLabel: {
+    fontSize: 11,
+    color: Colors.white,
+    letterSpacing: 0.3,
+  },
+  heroCount: {
+    fontSize: 28,
+    fontWeight: '800',
+    color: Colors.white,
+    letterSpacing: -0.5,
+    marginTop: 2,
+  },
+  heroSub: {
+    fontSize: 11,
+    color: Colors.lightGreen,
+    marginTop: 2,
+  },
+  // npsCard: {
+  //   backgroundColor: Colors.white,
+  //   borderRadius: 14,
+  //   borderWidth: 0.5,
+  //   borderColor: Colors.border,
+  //   paddingVertical: 12,
+  //   paddingHorizontal: 14,
+  //   flex: 1,
+  // },
+  // npsLabel: {
+  //   fontSize: 10,
+  //   color: Colors.textLight,
+  //   textTransform: 'uppercase',
+  //   letterSpacing: 0.4,
+  //   marginBottom: 6,
+  // },
+  npsVal: {
+    fontSize: 18,
+    fontWeight: '800',
+    color: Colors.secondary,
+    marginLeft: 4,
+  },
+  npsSub: {
+    fontSize: 10,
+    color: Colors.textLight,
+  },
+  statCardBlue: {
+    backgroundColor: Colors.lightBlue,
+    borderRadius: 12,
+    borderWidth: 0.5,
+    borderColor: 'rgba(55,138,221,0.2)',
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+  },
+  statCardSmall: {
+    flex: 1,
+    borderRadius: 10,
+    borderWidth: 0.5,
+    paddingVertical: 8,
+    paddingHorizontal: 8,
+  },
+  reportGrid: {
+    width: '100%',
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    justifyContent: 'space-between',
+    paddingHorizontal: 14,
+    marginVertical: 10,
+  },
+  reportTile: {
+    width: '48%',
+    flexDirection: 'row',
+    backgroundColor: '#fff',
+    borderRadius: 14,
+    marginBottom: 12,
+    overflow: 'hidden',
+    borderWidth: 1,
+    borderColor: 'rgba(0,0,0,0.06)',
+    shadowColor: '#000',
+    shadowOpacity: 0.06,
+    shadowRadius: 8,
+    shadowOffset: { width: 0, height: 3 },
+    elevation: 2,
+  },
+  reportAccent: {
+    width: 5,
+  },
+  reportBody: {
+    flex: 1,
+    paddingVertical: 14,
+    paddingHorizontal: 12,
+  },
+  reportIconWrap: {
+    width: 38,
+    height: 38,
+    borderRadius: 10,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 10,
+  },
+  reportTileText: {
+    fontFamily: 'Lexend-Medium',
+    fontSize: 13.5,
+    lineHeight: 18,
+    color: '#1B2B34',
+  },
+  aiFab: {
+    position: 'absolute',
+    right: 18,
+    bottom: 90,
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: Colors.primary,
+    paddingHorizontal: 18,
+    paddingVertical: 14,
+    borderRadius: 30,
+    shadowColor: '#000',
+    shadowOpacity: 0.25,
+    shadowRadius: 6,
+    shadowOffset: { width: 0, height: 3 },
+    elevation: 6,
+    zIndex: 999,
+  },
+  aiFabText: {
+    color: Colors.white,
+    fontFamily: 'Lexend-SemiBold',
+    fontSize: 14,
+    marginLeft: 8,
+  },
+  aiModalContainer: {
+    flex: 1,
+    backgroundColor: Colors.white,
+  },
+  aiHeader: {
+    height: 56,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 8,
+    borderBottomWidth: 1,
+    borderBottomColor: Colors.border,
+    backgroundColor: Colors.white,
+  },
+  aiHeaderBtn: {
+    width: 40,
+    height: 40,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  aiHeaderTitle: {
+    flex: 1,
+    textAlign: 'center',
+    fontFamily: 'Lexend-SemiBold',
+    fontSize: 16,
+    color: Colors.textDark,
+  },
+  aiLoader: {
+    ...StyleSheet.absoluteFillObject,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: Colors.background,
   },
 });

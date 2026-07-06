@@ -7,6 +7,7 @@ import {
   StyleSheet,
   TouchableOpacity,
   Image,
+  LayoutAnimation,
 } from 'react-native';
 import { ActivityIndicator, Card, Dialog, Portal } from 'react-native-paper';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -32,6 +33,7 @@ const getISTDate = date => {
 const PharmacyAnalysis = ({ navigation }) => {
   const route = useRoute();
   const location = useSelector(state => state.location.value);
+  const [isExpanded, setIsExpanded] = useState(false);
   const [fromDate, setFromDate] = useState(
     route.params?.fromDate ? new Date(route.params.fromDate) : new Date(),
   );
@@ -42,16 +44,53 @@ const PharmacyAnalysis = ({ navigation }) => {
   const itemsPerPage = 10;
   const [loading, setLoading] = useState(false);
   const [data, setData] = useState({
-    fully_taken: [],
-    partially_taken: [],
-    extra_taken: [],
+    taken: [],
     not_taken: [],
   });
   const [activeTab, setActiveTab] = useState('taken');
-  const activeList = data[activeTab] || [];
+  const [selectedType, setSelectedType] = useState(null);
+  const [selectedPatient, setSelectedPatient] = useState(null);
+  const [dialogVisible, setDialogVisible] = useState(false);
+  const activeList = useMemo(() => {
+    let list = data[activeTab] || [];
+
+    if (selectedType) {
+      list = list.filter(
+        item =>
+          item.patient_type?.toLowerCase() === selectedType?.toLowerCase(),
+      );
+    }
+
+    return list;
+  }, [data, activeTab, selectedType]);
   const paginatedData = useMemo(() => {
     return activeList.slice(page * itemsPerPage, (page + 1) * itemsPerPage);
   }, [page, itemsPerPage, activeList]);
+
+  const summary = useMemo(() => {
+    const result = {
+      New: { taken: 0, not_taken: 0 },
+      Postoperative: { taken: 0, not_taken: 0 },
+      Follow: { taken: 0, not_taken: 0 },
+      Other: { taken: 0, not_taken: 0 },
+    };
+
+    Object.keys(data).forEach(key => {
+      data[key]?.forEach(item => {
+        const type = item.patient_type?.trim();
+
+        if (!result[type]) return;
+
+        if (key === 'taken') {
+          result[type].taken += 1;
+        } else if (key === 'not_taken') {
+          result[type].not_taken += 1;
+        }
+      });
+    });
+
+    return result;
+  }, [data]);
 
   const handleNextPage = () => {
     if ((page + 1) * itemsPerPage < activeList.length) {
@@ -70,10 +109,11 @@ const PharmacyAnalysis = ({ navigation }) => {
 
     try {
       const response = await fetch(
-        `${BACKEND_URL}/pharmacyCollection/prescription-analysis?location=${location}&from=${fromDate}&to=${toDate}`,
+        `${BACKEND_URL}/pharmacyCollection/prescription-analysis/quantity/v1?location=${location}&from=${fromDate}&to=${toDate}`,
       );
 
       const result = await response.json();
+      console.log('Pharmacy Data:', result);
       setPage(0);
       setData(result || {});
       setLoading(false);
@@ -88,53 +128,78 @@ const PharmacyAnalysis = ({ navigation }) => {
   }, [location, fromDate, toDate]);
 
   const renderItem = ({ item }) => (
-    <Card style={styles.card}>
-      {/* Name + Mobile + Date */}
-      <View style={styles.topRow}>
-        <Text style={styles.name} numberOfLines={2}>
-          {item.patient_name}
-        </Text>
-
-        <View style={styles.topRight}>
-          <Text style={styles.mobile}>📞 {item.mobile}</Text>
-          <Text style={styles.date}>📅 {item.date}</Text>
+    <TouchableOpacity
+      activeOpacity={0.8}
+      onPress={() => {
+        setSelectedPatient(item);
+        setDialogVisible(true);
+      }}
+    >
+      <Card style={styles.card}>
+        <View style={{ ...styles.row, justifyContent: 'space-around' }}>
+          <Text style={styles.label}>{item.patient_type}</Text>
         </View>
-      </View>
 
-      {/* Prescribed + Purchased */}
-      <View style={styles.row}>
-        <View style={styles.col}>
-          <Text style={styles.label}>
-            Prescribed :
-            <Text style={styles.prescribed}> {item.total_prescribed}</Text>
+        {/* Name + Mobile + Date */}
+        <View style={styles.topRow}>
+          <Text style={styles.name} numberOfLines={2}>
+            {item.patient_name}
           </Text>
+
+          <View style={styles.topRight}>
+            <Text style={styles.mobile}>📞 {item.mobile}</Text>
+            <Text style={styles.date}>📅 {item.date}</Text>
+          </View>
         </View>
 
-        <View style={styles.col}>
-          <Text style={styles.label}>
-            Purchased :
-            <Text style={styles.purchased}> {item.total_purchased}</Text>
-          </Text>
-        </View>
-      </View>
+        {/* Prescribed + Purchased */}
+        <View style={styles.row}>
+          <View style={styles.col}>
+            <Text style={styles.label}>
+              Prescribed :
+              <Text style={styles.prescribed}>
+                {' '}
+                {Math.round(item.total_prescribed)}
+              </Text>
+            </Text>
+          </View>
 
-      {/* Remaining + Compliance */}
-      <View style={styles.row}>
-        <View style={styles.col}>
-          <Text style={styles.label}>
-            Remaining :<Text style={styles.diff}> {item.difference}</Text>
-          </Text>
+          <View style={styles.col}>
+            <Text style={styles.label}>
+              Purchased :
+              <Text style={styles.purchased}>
+                {' '}
+                {Math.round(item.total_purchased)}
+              </Text>
+            </Text>
+          </View>
         </View>
 
-        <View style={styles.col}>
-          <Text style={styles.label}>
-            Compliance :
-            <Text style={styles.compliance}> {item.compliance_percent}%</Text>
-          </Text>
+        {/* Remaining + Compliance */}
+        <View style={styles.row}>
+          <View style={styles.col}>
+            <Text style={styles.label}>
+              Remaining :
+              <Text style={styles.diff}> {Math.round(item.difference)}</Text>
+            </Text>
+          </View>
+
+          <View style={styles.col}>
+            <Text style={styles.label}>
+              Compliance :
+              <Text style={styles.compliance}> {item.compliance_percent}%</Text>
+            </Text>
+          </View>
         </View>
-      </View>
-    </Card>
+      </Card>
+    </TouchableOpacity>
   );
+
+  // Function to toggle the visibility
+  const toggleExpand = () => {
+    LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+    setIsExpanded(!isExpanded);
+  };
 
   return (
     <SafeAreaView style={styles.maincontainer} edges={['top', 'bottom']}>
@@ -147,39 +212,122 @@ const PharmacyAnalysis = ({ navigation }) => {
           />
         </TouchableOpacity>
 
-        <Text style={styles.header}>Pharmacy Report</Text>
+        <Card style={styles.cardTotal}>
+          <TouchableOpacity
+            style={{
+              minWidth: 160,
+              flexDirection: 'row',
+              paddingHorizontal: 5,
+            }}
+            onPress={toggleExpand}
+            activeOpacity={0.9}
+          >
+            <Text style={styles.header}>Pharmacy Report</Text>
+            <View
+              style={{
+                width: 30,
+                justifyContent: 'center',
+                alignItems: 'center',
+              }}
+            >
+              <Image
+                style={{
+                  width: 26,
+                  height: 26,
+                  objectFit: 'contain',
+                }}
+                source={
+                  isExpanded
+                    ? require('../../assets/up-arrow.png')
+                    : require('../../assets/down-arrow.png')
+                }
+              />
+            </View>
+          </TouchableOpacity>
+        </Card>
 
         <View style={{ width: 35 }} />
       </View>
 
-      <View style={styles.tabContainer}>
-        {[
-          { key: 'taken', label: 'Fully Taken' },
-          { key: 'partially_taken', label: 'Partially Taken' },
-          { key: 'not_taken', label: 'Not Taken' },
-        ].map(tab => (
-          <TouchableOpacity
-            key={tab.key}
-            style={[
-              styles.tabButton,
-              activeTab === tab.key && styles.activeTab,
-            ]}
-            onPress={() => {
-              setActiveTab(tab.key);
-              setPage(0);
-            }}
-          >
-            <Text
+      {isExpanded && (
+        <>
+          <View style={styles.summaryContainer}>
+            {/* 🔥 Clear Filter Card */}
+            <TouchableOpacity
               style={[
-                styles.tabText,
-                activeTab === tab.key && styles.activeTabText,
+                styles.summaryCard,
+                selectedType === null && styles.activeSummaryCard,
               ]}
+              onPress={() => {
+                setSelectedType(null); // ✅ clear filter
+                setPage(0);
+              }}
             >
-              {tab.label}
-            </Text>
-          </TouchableOpacity>
-        ))}
-      </View>
+              <Text style={styles.summaryTitle}>All</Text>
+              <Text style={styles.summaryText}>
+                ✅ {Object.values(summary).reduce((sum, t) => sum + t.taken, 0)}
+              </Text>
+              <Text style={styles.summaryText}>
+                ❌{' '}
+                {Object.values(summary).reduce(
+                  (sum, t) => sum + t.not_taken,
+                  0,
+                )}
+              </Text>
+            </TouchableOpacity>
+
+            {/* Existing Cards */}
+            {Object.keys(summary).map(type => (
+              <TouchableOpacity
+                key={type}
+                style={[
+                  styles.summaryCard,
+                  selectedType === type && styles.activeSummaryCard,
+                ]}
+                onPress={() => {
+                  setSelectedType(selectedType === type ? null : type);
+                  setPage(0);
+                }}
+              >
+                <Text style={styles.summaryTitle}>{type}</Text>
+
+                <Text style={styles.summaryText}>✅ {summary[type].taken}</Text>
+                <Text style={styles.summaryText}>
+                  ❌ {summary[type].not_taken}
+                </Text>
+              </TouchableOpacity>
+            ))}
+          </View>
+
+          <View style={styles.tabContainer}>
+            {[
+              { key: 'taken', label: 'Taken' },
+              { key: 'not_taken', label: 'Not Taken' },
+            ].map(tab => (
+              <TouchableOpacity
+                key={tab.key}
+                style={[
+                  styles.tabButton,
+                  activeTab === tab.key && styles.activeTab,
+                ]}
+                onPress={() => {
+                  setActiveTab(tab.key);
+                  setPage(0);
+                }}
+              >
+                <Text
+                  style={[
+                    styles.tabText,
+                    activeTab === tab.key && styles.activeTabText,
+                  ]}
+                >
+                  {tab.label}
+                </Text>
+              </TouchableOpacity>
+            ))}
+          </View>
+        </>
+      )}
 
       {/* List */}
       <FlatList
@@ -232,6 +380,68 @@ const PharmacyAnalysis = ({ navigation }) => {
           </Dialog.Content>
         </Dialog>
       </Portal>
+      <Portal>
+        <Dialog
+          visible={dialogVisible}
+          onDismiss={() => setDialogVisible(false)}
+          style={{ maxHeight: '80%' }}
+        >
+          <Dialog.Title>Medicine Details</Dialog.Title>
+
+          <Dialog.Content>
+            {selectedPatient && (
+              <View>
+                <Text style={{ fontWeight: '700', marginBottom: 10 }}>
+                  {selectedPatient.patient_name}
+                </Text>
+
+                {/* Prescribed Medicines */}
+                <Text style={{ fontWeight: '600', marginTop: 10 }}>
+                  Prescribed Medicines:
+                </Text>
+
+                {selectedPatient.prescribed_medicines?.map((med, index) => (
+                  <Text key={index}>
+                    • {med.medicine_name} (Qty: {med.prescribed_qty})
+                  </Text>
+                ))}
+
+                {/* Purchased Medicines */}
+                <Text style={{ fontWeight: '600', marginTop: 15 }}>
+                  Purchased Medicines:
+                </Text>
+
+                {selectedPatient.purchased_medicines?.map((med, index) => (
+                  <Text key={index}>
+                    • {med.medicine_name} (Qty: {med.purchased_qty})
+                  </Text>
+                ))}
+
+                {/* Extra Purchased */}
+                {selectedPatient.extraPurchased?.length > 0 && (
+                  <>
+                    <Text style={{ fontWeight: '600', marginTop: 15 }}>
+                      Extra Purchased:
+                    </Text>
+
+                    {selectedPatient.extraPurchased.map((med, index) => (
+                      <Text key={index}>
+                        • {med.medicine_name} (Qty: {med.quantity})
+                      </Text>
+                    ))}
+                  </>
+                )}
+              </View>
+            )}
+          </Dialog.Content>
+
+          <Dialog.Actions>
+            <TouchableOpacity onPress={() => setDialogVisible(false)}>
+              <Text style={{ color: '#184D67', fontWeight: '600' }}>Close</Text>
+            </TouchableOpacity>
+          </Dialog.Actions>
+        </Dialog>
+      </Portal>
     </SafeAreaView>
   );
 };
@@ -268,6 +478,17 @@ const styles = StyleSheet.create({
     marginBottom: 12,
     borderRadius: 10,
     elevation: 2,
+  },
+  cardTotal: {
+    minWidth: 160,
+    height: 50,
+    display: 'flex',
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#fff',
+    marginVertical: 5,
+    borderRadius: 4,
   },
 
   row: {
@@ -380,5 +601,35 @@ const styles = StyleSheet.create({
 
   activeTabText: {
     color: '#fff',
+  },
+  summaryContainer: {
+    flexDirection: 'row',
+    flexWrap: 'wrap', // ✅ allows multiple rows
+    justifyContent: 'space-around',
+    paddingVertical: 10,
+  },
+
+  summaryCard: {
+    padding: 10,
+    borderRadius: 8,
+    backgroundColor: '#f3f4f6',
+    alignItems: 'center',
+    width: '30%', // ✅ responsive grid (4 per row)
+    marginBottom: 10,
+  },
+
+  activeSummaryCard: {
+    backgroundColor: '#a7ddef',
+  },
+
+  summaryTitle: {
+    fontWeight: '700',
+    fontSize: 13,
+    marginBottom: 5,
+  },
+
+  summaryText: {
+    fontSize: 13,
+    fontWeight: '600',
   },
 });

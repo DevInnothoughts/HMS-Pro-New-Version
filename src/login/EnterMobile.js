@@ -100,14 +100,25 @@ const EnterMobile = ({ navigation }) => {
                       location: data1.location,
                     });
                   } else {
-                    dispatch(setLocation(data1.location));
-                    dispatch(setLocationArray([]));
-                    dispatch(setRole(''));
-                    dispatch(setSubRole(data1.subRole ? data1.subRole : ''));
-                    setLoading(false);
-                    navigation.navigate('AdminHome', {
-                      location: data1.location,
-                    });
+                    if (data1.role && data1.role === 'AdAgency') {
+                      dispatch(setRole(data1.role));
+                      dispatch(setLocationArray(data1.location));
+                      dispatch(setLocation(data1.location[0]));
+                      dispatch(setSubRole(data1.subRole ? data1.subRole : ''));
+                      setLoading(false);
+                      navigation.navigate('leadsStats', {
+                        location: data1.location[0],
+                      });
+                    } else {
+                      dispatch(setLocation(data1.location));
+                      dispatch(setLocationArray([]));
+                      dispatch(setRole(''));
+                      dispatch(setSubRole(data1.subRole ? data1.subRole : ''));
+                      setLoading(false);
+                      navigation.navigate('AdminHome', {
+                        location: data1.location,
+                      });
+                    }
                   }
                 }
               } else {

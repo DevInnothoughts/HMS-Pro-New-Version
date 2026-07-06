@@ -65,6 +65,7 @@ const CallingList = ({ navigation }) => {
     { key: 'TestOPD', title: 'Test Advised' },
     { key: 'Enquiry', title: 'Enquiry' },
     { key: 'PostOp', title: 'Post-Op' },
+    { key: 'MCDPA', title: 'MCDPA' },
   ]);
 
   const [callingListData, setCallingListData] = useState({
@@ -73,6 +74,7 @@ const CallingList = ({ navigation }) => {
     TestOPD: [],
     Enquiry: [],
     PostOp: [],
+    MCDPA: [],
   });
 
   const BACKEND_URL = 'https://wedoc.in/hms'; //'http://192.168.1.4:5100/ivr'; //'https://admin.wedoc.in/ivr'; //
@@ -96,7 +98,7 @@ const CallingList = ({ navigation }) => {
     try {
       setLoading(true);
       fetch(
-        `${BACKEND_URL}/callingList?location=${location}&date=${from}`,
+        `${BACKEND_URL}/callingList/v1?location=${location}&date=${from}`,
         requestOptions,
       )
         .then(response => response.json())
@@ -152,12 +154,29 @@ const CallingList = ({ navigation }) => {
           <Text style={{ ...styles.patientPhone, textAlign: 'center' }}>
             {new Date(item.date).toLocaleDateString('en-GB')}
           </Text>
-          <Avatar.Text size={28} label={`${item.days_since}`} />
+          {item.days_since !== 'CB' ? (
+            <Avatar.Text size={28} label={`${item.days_since}`} />
+          ) : (
+            <View
+              style={{
+                backgroundColor: '#dd00ff',
+                paddingHorizontal: 10,
+                paddingVertical: 4,
+                borderRadius: 12,
+                alignSelf: 'center',
+              }}
+            >
+              <Text style={{ color: '#fff', fontSize: 12, fontWeight: 'bold' }}>
+                CallBack
+              </Text>
+            </View>
+          )}
         </View>
         <View style={styles.listItem}>
           <View style={styles.detailsContainer}>
             <Text style={styles.patientName}>{item.name}</Text>
             <Text style={styles.patientPhone}>{item.phone}</Text>
+            <Text style={styles.assistantDoctor}>{item.doctor_name}</Text>
           </View>
           <View style={styles.detailsContainer}>
             <Text style={styles.patientPhone}>{item.diagnosis}</Text>
@@ -505,6 +524,13 @@ const styles = StyleSheet.create({
     fontFamily: 'Lexend-Regular',
     fontSize: 13,
     color: '#555',
+  },
+  assistantDoctor: {
+    fontFamily: 'Lexend-Regular',
+    fontSize: 13,
+    marginVertical: 3,
+    //fontWeight: '400',
+    color: '#111',
   },
   actionsContainer: {
     flexDirection: 'row',

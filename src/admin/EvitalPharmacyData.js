@@ -119,7 +119,7 @@ const PharmacyInvoiceScreen = ({ navigation }) => {
     setLoading(true);
 
     fetch(
-      `${BACKEND_URL}/pharmacyCollection?location=${location}&from=${from}&to=${to}`,
+      `${BACKEND_URL}/pharmacyCollection/v2?location=${location}&from=${from}&to=${to}`,
       {
         method: 'GET',
         headers: { 'Content-Type': 'application/json' },
@@ -127,35 +127,15 @@ const PharmacyInvoiceScreen = ({ navigation }) => {
     )
       .then(response => response.json())
       .then(res => {
-        setInvoices(res);
-        setFilteredRecords(res);
-        setFilteredRecords2(res);
+        setInvoices(res.invoices);
 
-        // ✅ GRAND TOTAL
-        const grandTotal = res.reduce((sum, row) => {
-          const invoice = safeParseInvoice(row.invoice_details);
-          return sum + (Number(invoice?.total) || 0);
-        }, 0);
+        setPaymentModeTotals(res.paymentModeTotals);
+        setTotalAmount(res.grandTotal);
 
-        setTotalAmount(grandTotal);
+        setFilteredRecords(res.invoices);
+        setFilteredRecords2(res.invoices);
 
-        // ✅ PAYMENT MODE TOTALS
-        const paymentModeTotals = res.reduce((acc, row) => {
-          const invoice = safeParseInvoice(row.invoice_details);
-          if (!invoice) return acc;
-
-          const mode = invoice.payment_mode || 'UNKNOWN';
-          const total = Number(invoice.total) || 0;
-
-          acc[mode] = (acc[mode] || 0) + total;
-          return acc;
-        }, {});
-
-        setPaymentModeTotals({
-          Cash: paymentModeTotals.Cash || 0,
-          Card: paymentModeTotals['CC/DC'] || 0,
-          UPI: paymentModeTotals.UPI || 0,
-        });
+        console.log(res);
 
         setLoading(false);
       })
