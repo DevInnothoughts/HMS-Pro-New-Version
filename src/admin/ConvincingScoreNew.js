@@ -23,6 +23,7 @@ import {
 import { useSelector } from 'react-redux';
 import ModalDropdown from 'react-native-modal-dropdown';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { InsightsModal, SpecialityDetailTable } from './ConvincingInsights';
 
 if (
   Platform.OS === 'android' &&
@@ -81,14 +82,17 @@ const getInitials = name =>
     .toUpperCase() || '–';
 
 /* ── Small presentational pieces ─────────────────────────────────────────── */
-const StatTile = ({ label, value, accent }) => (
-  <View style={styles.tile}>
-    <Text style={[styles.tileVal, accent ? { color: accent } : null]}>
-      {value}
-    </Text>
-    <Text style={styles.tileLabel}>{label}</Text>
-  </View>
-);
+const StatTile = ({ label, value, accent, onPress }) => {
+  const Container = onPress ? TouchableOpacity : View;
+  return (
+    <Container style={styles.tile} onPress={onPress} activeOpacity={0.7}>
+      <Text style={[styles.tileVal, accent ? { color: accent } : null]}>
+        {value}
+      </Text>
+      <Text style={styles.tileLabel}>{label}</Text>
+    </Container>
+  );
+};
 
 const FunnelRow = ({ label, value, note, accent, strong }) => (
   <View style={styles.funnelRow}>
@@ -157,12 +161,19 @@ const SpecialityTable = ({ specialities, accent }) => {
             </Text>
           </View>
           {s.subTypes && s.subTypes.length > 0 && (
-            <View style={styles.subTypeWrap}>
+            <View style={styles.subList}>
               {s.subTypes.map(st => (
-                <View key={st.name} style={styles.subTypeChip}>
-                  <Text style={styles.subTypeText}>
-                    {st.name}{' '}
-                    <Text style={styles.subTypeCount}>{st.patientCount}</Text>
+                <View key={st.name} style={styles.subLine}>
+                  <Text
+                    style={[styles.subLineName, styles.tblNameCol]}
+                    numberOfLines={1}
+                  >
+                    ↳ {st.name}
+                  </Text>
+                  <Text style={styles.subLineNum}>{st.seen}</Text>
+                  <Text style={styles.subLineNum}>{st.advised}</Text>
+                  <Text style={[styles.subLineNum, { color: accent }]}>
+                    {st.surgery}
                   </Text>
                 </View>
               ))}
@@ -174,11 +185,19 @@ const SpecialityTable = ({ specialities, accent }) => {
   );
 };
 
-const DoctorCard = ({ item, accent, roleLabel, expanded, onToggle }) => {
+const DoctorCard = ({
+  item,
+  accent,
+  roleLabel,
+  expanded,
+  onToggle,
+  detail,
+}) => {
   const diagnosed = item.patientCount || 0;
   const advised = item.diagnosisCounts?.Surgery || 0;
   const medication = item.diagnosisCounts?.Medication || 0;
   const done = item.invoiceCount || 0;
+  const totalDone = item.totalSurgeriesDone || 0;
   const sameMonth = item.thisMonthDiagnosedAndSurgeryPerformed || 0;
 
   const convincing = pctNum(done, advised);
@@ -249,7 +268,13 @@ const DoctorCard = ({ item, accent, roleLabel, expanded, onToggle }) => {
             accent={accent}
             strong
           />
-
+          {/* <FunnelRow
+            label="Total Surgeries Done"
+            value={totalDone}
+            note="every procedure in period"
+            accent={accent}
+            strong
+          /> */}
           <View style={styles.divider} />
 
           <StatLine
@@ -301,7 +326,11 @@ const DoctorCard = ({ item, accent, roleLabel, expanded, onToggle }) => {
             </View>
           </View>
 
-          <SpecialityTable specialities={item.specialities} accent={accent} />
+          <SpecialityTable
+            specialities={item.specialities}
+            detail={detail}
+            accent={accent}
+          />
         </View>
       )}
     </View>
@@ -339,6 +368,8 @@ const ConvincingScoreV1 = ({ navigation }) => {
 
   const [mainDoctorPerformance, setMainDoctorPerformance] = useState([]);
   const [asstDoctorPerformance, setAsstDoctorPerformance] = useState([]);
+  const [insights, setInsights] = useState(null);
+  const [metricModal, setMetricModal] = useState(null); // { key, label }
 
   const BACKEND_URL = 'https://wedoc.in/hms';
 
@@ -404,11 +435,12 @@ const ConvincingScoreV1 = ({ navigation }) => {
       redirect: 'follow',
     };
     setLoading(true);
+    setInsights(null);
     fetch(
       `${BACKEND_URL}/ConvincingScore/v3?location=${loc}&from=${from}&to=${to}`,
       requestOptions,
     )
-      .then(response => response.json())
+      .then(r => r.json())
       .then(res => {
         setMainDoctorPerformance(res.consultantDoctors || []);
         setAsstDoctorPerformance(res.assistantDoctors || []);
@@ -417,6 +449,15 @@ const ConvincingScoreV1 = ({ navigation }) => {
       })
       .catch(err => console.log('convincing score error:', err))
       .finally(() => setLoading(false));
+
+    // drill-down insights (gender / doctor-wise / disease-wise + sub-type metrics)
+    fetch(
+      `${BACKEND_URL}/convincingInsights?location=${loc}&from=${from}&to=${to}`,
+      requestOptions,
+    )
+      .then(r => r.json())
+      .then(setInsights)
+      .catch(err => console.log('insights error:', err));
   };
 
   const applyMonth = () => {
@@ -442,6 +483,8 @@ const ConvincingScoreV1 = ({ navigation }) => {
   const accent = tab === 'surgeons' ? C.surgeon : C.assistant;
   const list =
     tab === 'surgeons' ? mainDoctorPerformance : asstDoctorPerformance;
+
+  const surgeriesPerformed = insights?.metrics?.surgeriesPerformed?.total || 0;
 
   return (
     <SafeAreaView style={styles.safe} edges={['top', 'bottom']}>
@@ -478,25 +521,44 @@ const ConvincingScoreV1 = ({ navigation }) => {
         <Text style={styles.periodEdit}>Change</Text>
       </TouchableOpacity>
 
-      {/* Branch summary */}
+      {/* Branch summary — tap any tile for the breakdown */}
       <View style={styles.summaryCard}>
         <StatTile
           label="New Appts"
           value={nf(branchTotal.newAppointmentCount)}
+          onPress={() =>
+            insights && setMetricModal({ key: 'newAppts', label: 'New Appts' })
+          }
         />
         <View style={styles.tileDiv} />
         <StatTile
           label="Diagnoses"
           value={nf(branchTotal.totalDiagnosisCount)}
+          onPress={() =>
+            insights && setMetricModal({ key: 'diagnoses', label: 'Diagnoses' })
+          }
         />
         <View style={styles.tileDiv} />
         <StatTile
           label="Surgery Adv."
           value={nf(branchTotal.totalSurgery)}
-          accent={C.surgeon}
+          onPress={() =>
+            insights &&
+            setMetricModal({ key: 'surgeryAdvised', label: 'Surgery Adv.' })
+          }
         />
         <View style={styles.tileDiv} />
-        <StatTile label="Medication" value={nf(branchTotal.totalMedication)} />
+        <StatTile
+          label="Surgeries Performed"
+          value={nf(surgeriesPerformed)}
+          onPress={() =>
+            insights &&
+            setMetricModal({
+              key: 'surgeriesPerformed',
+              label: 'Surgeries Performed',
+            })
+          }
+        />
       </View>
 
       {/* Tabs */}
@@ -540,6 +602,14 @@ const ConvincingScoreV1 = ({ navigation }) => {
                 roleLabel={tab === 'surgeons' ? 'Surgeon' : 'Assistant'}
                 expanded={expandedId === key}
                 onToggle={() => toggleExpand(key)}
+                detail={
+                  (
+                    (tab === 'surgeons'
+                      ? insights?.consultantDoctors
+                      : insights?.assistantDoctors) || []
+                  ).find(d => String(d.doctorId) === String(item.doctorId))
+                    ?.specialities || []
+                }
               />
             );
           })
@@ -601,6 +671,16 @@ const ConvincingScoreV1 = ({ navigation }) => {
           </KeyboardAvoidingView>
         </Modal>
       </Portal>
+
+      <InsightsModal
+        visible={!!metricModal}
+        metricLabel={metricModal?.label}
+        data={
+          metricModal && insights ? insights.metrics[metricModal.key] : null
+        }
+        accent={accent}
+        onClose={() => setMetricModal(null)}
+      />
     </SafeAreaView>
   );
 };
@@ -906,6 +986,17 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     backgroundColor: 'rgba(244,246,249,0.6)',
+  },
+
+  subList: { marginTop: 6, paddingLeft: 2 },
+  subLine: { flexDirection: 'row', alignItems: 'center', paddingVertical: 3 },
+  subLineName: { fontFamily: 'Lexend-Regular', fontSize: 12, color: '#5A6B7B' },
+  subLineNum: {
+    width: 56,
+    textAlign: 'right',
+    fontFamily: 'Lexend-Regular',
+    fontSize: 12,
+    color: '#5A6B7B',
   },
 
   /* Modal */

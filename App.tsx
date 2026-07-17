@@ -509,7 +509,18 @@ function App(): React.JSX.Element {
               <Stack.Screen
                 name="BranchTargetDetail"
                 component={
-                  require('./src/admin/BranchTargetDetailScreen').default
+                  require('./src/admin/targetComparison/BranchTargetDetailScreen')
+                    .default
+                }
+                options={{
+                  headerShown: false,
+                }}
+              />
+              <Stack.Screen
+                name="TargetComparison"
+                component={
+                  require('./src/admin/targetComparison/TargetComparisonScreen')
+                    .default
                 }
                 options={{
                   headerShown: false,
@@ -523,6 +534,30 @@ function App(): React.JSX.Element {
               <Stack.Screen
                 name="DoctorPerformance"
                 component={DoctorPerformance}
+                options={{ headerShown: false }}
+              />
+              <Stack.Screen
+                name="ServiceTicketing"
+                component={
+                  require('./src/admin/serviceTicketing/ServiceTicketingHome')
+                    .default
+                }
+                options={{ headerShown: false }}
+              />
+              <Stack.Screen
+                name="RaiseServiceTicket"
+                component={
+                  require('./src/admin/serviceTicketing/RaiseServiceTicket')
+                    .default
+                }
+                options={{ headerShown: false }}
+              />
+              <Stack.Screen
+                name="ServiceTicketDetail"
+                component={
+                  require('./src/admin/serviceTicketing/ServiceTicketDetail')
+                    .default
+                }
                 options={{ headerShown: false }}
               />
             </Stack.Navigator>

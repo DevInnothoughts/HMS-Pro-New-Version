@@ -1,4 +1,4 @@
-import React, { useMemo, useState, useCallback } from 'react';
+import React, { useMemo, useState, useCallback, useEffect } from 'react';
 import {
   View,
   ScrollView,
@@ -31,7 +31,7 @@ import Share from 'react-native-share';
 const BACKEND_URL = 'https://wedoc.in/hms';
 const TIMEOUT_DURATION = 30000; // 30s — Excel queries over a date range can be slow
 const DSR_TIMEOUT = 120000; // 2 min — DSR fans out across many branches + emails
-const IPD_DUE_MAX_DAYS = 31; // cap the IPD Due date range span
+const IPD_DUE_MAX_DAYS = 730; // cap the IPD Due date range span
 const IPD_DUE_STATUSES = [
   'All',
   'Cashless',
@@ -54,6 +54,17 @@ const getISTDate = date => {
   const month = String(istTime.getUTCMonth() + 1).padStart(2, '0');
   const day = String(istTime.getUTCDate()).padStart(2, '0');
   return `${year}-${month}-${day}`;
+};
+
+const startOfDay = d => {
+  const x = new Date(d);
+  x.setHours(0, 0, 0, 0);
+  return x;
+};
+const addDays = (d, n) => {
+  const x = startOfDay(d);
+  x.setDate(x.getDate() + n);
+  return x;
 };
 
 const displayDate = d =>
@@ -324,6 +335,106 @@ const DropdownModal = ({
   </Modal>
 );
 
+// ── Reusable multi-select modal ───────────────────────────────────
+const MultiSelectModal = ({
+  visible,
+  title,
+  options,
+  selected,
+  onChange,
+  onClose,
+}) => {
+  const allSelected = options.length > 0 && selected.length === options.length;
+
+  return (
+    <Modal
+      visible={visible}
+      transparent
+      animationType="fade"
+      onRequestClose={onClose}
+    >
+      <View style={dropStyles.overlay}>
+        <View style={dropStyles.box}>
+          <Text style={dropStyles.title}>{title}</Text>
+
+          <TouchableOpacity
+            style={msStyles.bulkRow}
+            onPress={() => onChange(allSelected ? [] : [...options])}
+          >
+            <Text style={msStyles.bulkText}>
+              {allSelected ? 'Clear all' : 'Select all'}
+            </Text>
+            <Text style={msStyles.count}>
+              {selected.length} of {options.length}
+            </Text>
+          </TouchableOpacity>
+
+          <Divider />
+
+          <ScrollView bounces={false} style={{ maxHeight: 340 }}>
+            {options.map(opt => {
+              const active = selected.includes(opt);
+              return (
+                <TouchableOpacity
+                  key={opt}
+                  style={[dropStyles.item, active && dropStyles.itemActive]}
+                  onPress={() =>
+                    onChange(
+                      active
+                        ? selected.filter(s => s !== opt)
+                        : [...selected, opt],
+                    )
+                  }
+                >
+                  <Text
+                    style={[
+                      dropStyles.itemText,
+                      active && dropStyles.itemTextActive,
+                    ]}
+                  >
+                    {opt}
+                  </Text>
+                  <Icon
+                    name={active ? 'checkbox-marked' : 'checkbox-blank-outline'}
+                    size={20}
+                    color={active ? PRIMARY : '#bbb'}
+                  />
+                </TouchableOpacity>
+              );
+            })}
+          </ScrollView>
+
+          <Divider />
+
+          <TouchableOpacity style={msStyles.doneBtn} onPress={onClose}>
+            <Text style={msStyles.doneText}>Done</Text>
+          </TouchableOpacity>
+        </View>
+      </View>
+    </Modal>
+  );
+};
+
+const msStyles = StyleSheet.create({
+  bulkRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    paddingHorizontal: 18,
+    paddingBottom: 12,
+  },
+  bulkText: { color: PRIMARY, fontSize: 13, fontWeight: '700' },
+  count: { color: '#777', fontSize: 12, fontWeight: '600' },
+  doneBtn: { paddingVertical: 15, alignItems: 'center' },
+  doneText: { color: PRIMARY, fontSize: 15, fontWeight: '700' },
+});
+
+const branchLabel = (sel, all) => {
+  if (!sel.length) return 'Select branches';
+  if (sel.length === 1) return sel[0];
+  if (sel.length === all.length) return `All ${all.length} branches`;
+  return `${sel.length} of ${all.length} branches`;
+};
+
 const dropStyles = StyleSheet.create({
   overlay: {
     flex: 1,
@@ -383,7 +494,7 @@ const ReportScreen = ({ navigation }) => {
     d.setDate(d.getDate() - 1);
     return d;
   };
-  const [dsrDate, setDsrDate] = useState(yesterday());
+  const [dsrDate, setDsrDate] = useState(() => addDays(new Date(), -1));
   const [showDsrPicker, setShowDsrPicker] = useState(false);
   const [dsrEmailing, setDsrEmailing] = useState(false);
   const [dsrDownloading, setDsrDownloading] = useState(false);
@@ -395,8 +506,10 @@ const ReportScreen = ({ navigation }) => {
     d.setDate(d.getDate() - n);
     return d;
   };
-  const [ipdFrom, setIpdFrom] = useState(daysAgo(IPD_DUE_MAX_DAYS - 1));
-  const [ipdTo, setIpdTo] = useState(new Date());
+  const [ipdFrom, setIpdFrom] = useState(() =>
+    addDays(new Date(), -(IPD_DUE_MAX_DAYS - 1)),
+  );
+  const [ipdTo, setIpdTo] = useState(() => startOfDay(new Date()));
   const [ipdStatus, setIpdStatus] = useState('All');
   const [showIpdFrom, setShowIpdFrom] = useState(false);
   const [showIpdTo, setShowIpdTo] = useState(false);
@@ -404,14 +517,30 @@ const ReportScreen = ({ navigation }) => {
   const [ipdDownloading, setIpdDownloading] = useState(false);
   const [ipdResult, setIpdResult] = useState(null);
 
+  const [ipdBranches, setIpdBranches] = useState(dsrLocations);
+  const [showIpdBranchPicker, setShowIpdBranchPicker] = useState(false);
+  // dsrLocations = branches you're authorized to pull; dsrBranches = the subset picked
+  const [dsrBranches, setDsrBranches] = useState(dsrLocations);
+  const [showDsrBranchPicker, setShowDsrBranchPicker] = useState(false);
+
   // Applied (committed) filters
   const [branch, setBranch] = useState(
     hasBranchPicker ? locationArray[0] : location,
   );
   const [visitType, setVisitType] = useState('OPD');
   const [sheetType, setSheetType] = useState('Sheet1');
-  const [fromDate, setFromDate] = useState(new Date());
-  const [toDate, setToDate] = useState(new Date());
+  const [fromDate, setFromDate] = useState(() => startOfDay(new Date()));
+  const [toDate, setToDate] = useState(() => startOfDay(new Date()));
+
+  const today = useMemo(() => startOfDay(new Date()), []);
+  const ipdFromMin = useMemo(
+    () => addDays(ipdTo, -(IPD_DUE_MAX_DAYS - 1)),
+    [ipdTo],
+  );
+  const ipdToMax = useMemo(() => {
+    const cap = addDays(ipdFrom, IPD_DUE_MAX_DAYS - 1);
+    return cap < today ? cap : today;
+  }, [ipdFrom, today]);
 
   // Pending filters (inside modal, only commit on Apply)
   const [pBranch, setPBranch] = useState(branch);
@@ -433,6 +562,12 @@ const ReportScreen = ({ navigation }) => {
   const [sections, setSections] = useState([]);
   const [error, setError] = useState(null);
   const [hasFetched, setHasFetched] = useState(false);
+
+  useEffect(() => {
+    setDsrBranches(dsrLocations);
+    setIpdBranches(dsrLocations);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [dsrLocations.join('|')]);
 
   const openFilter = () => {
     setPBranch(branch);
@@ -587,8 +722,8 @@ const ReportScreen = ({ navigation }) => {
 
   // Server generates the workbook and emails it to the hardcoded recipient.
   const emailDSR = async () => {
-    if (!dsrLocations.length) {
-      Alert.alert('No Branches', 'No branches are available for your account.');
+    if (!dsrBranches.length) {
+      Alert.alert('No Branches', 'Select at least one branch.');
       return;
     }
     setDsrEmailing(true);
@@ -602,7 +737,7 @@ const ReportScreen = ({ navigation }) => {
       const response = await fetch(`${BACKEND_URL}/report/dsr`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ date, locations: dsrLocations }),
+        body: JSON.stringify({ date, locations: dsrBranches }),
         signal: controller.signal,
       });
       const data = await response.json();
@@ -626,8 +761,8 @@ const ReportScreen = ({ navigation }) => {
 
   // Server returns the rows; the app builds the Excel and saves/shares it.
   const downloadDSR = async () => {
-    if (!dsrLocations.length) {
-      Alert.alert('No Branches', 'No branches are available for your account.');
+    if (!dsrBranches.length) {
+      Alert.alert('No Branches', 'Select at least one branch.');
       return;
     }
     setDsrDownloading(true);
@@ -641,7 +776,7 @@ const ReportScreen = ({ navigation }) => {
       const response = await fetch(`${BACKEND_URL}/report/dsr/data`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ date, locations: dsrLocations }),
+        body: JSON.stringify({ date, locations: dsrBranches }),
         signal: controller.signal,
       });
       const data = await response.json();
@@ -701,8 +836,8 @@ const ReportScreen = ({ navigation }) => {
 
   // ── IPD Due ──
   const runIPDDue = async kind => {
-    if (!dsrLocations.length) {
-      Alert.alert('No Branches', 'No branches are available for your account.');
+    if (!ipdBranches.length) {
+      Alert.alert('No Branches', 'Select at least one branch.');
       return;
     }
     if (getISTDate(ipdFrom) > getISTDate(ipdTo)) {
@@ -737,7 +872,7 @@ const ReportScreen = ({ navigation }) => {
         body: JSON.stringify({
           from,
           to,
-          locations: dsrLocations,
+          locations: ipdBranches,
           status: ipdStatus,
         }),
         signal: controller.signal,
@@ -834,9 +969,10 @@ const ReportScreen = ({ navigation }) => {
           <Text style={styles.headerSubDate} numberOfLines={1}>
             {mode === 'report'
               ? `${branch} · ${visitType} · ${sheetType}`
-              : `${dsrLocations.length} branch${
-                  dsrLocations.length === 1 ? '' : 'es'
-                }`}
+              : branchLabel(
+                  mode === 'dsr' ? dsrBranches : ipdBranches,
+                  dsrLocations,
+                )}
           </Text>
         </View>
         {mode === 'report' && (
@@ -891,7 +1027,8 @@ const ReportScreen = ({ navigation }) => {
               <Text style={styles.dsrDesc}>
                 Generates the branch-wise collection summary (OPD, IPD,
                 Pharmacy) for the selected date and emails the Excel to the
-                reports inbox. Covers the {dsrLocations.length} branch
+                reports inbox. Covers {dsrBranches.length} of{' '}
+                {dsrLocations.length} branch
                 {dsrLocations.length === 1 ? '' : 'es'} you have access to.
               </Text>
 
@@ -904,6 +1041,25 @@ const ReportScreen = ({ navigation }) => {
               >
                 <Icon name="calendar" size={18} color={PRIMARY} />
                 <Text style={styles.modalDateText}>{displayDate(dsrDate)}</Text>
+                <Icon
+                  name="chevron-down"
+                  size={18}
+                  color="#999"
+                  style={{ marginLeft: 'auto' }}
+                />
+              </TouchableOpacity>
+
+              <Text style={[styles.modalLabel, { marginTop: 16 }]}>
+                Branches
+              </Text>
+              <TouchableOpacity
+                style={styles.modalDateBtn}
+                onPress={() => setShowDsrBranchPicker(true)}
+              >
+                <Icon name="hospital-building" size={18} color={PRIMARY} />
+                <Text style={styles.modalDateText} numberOfLines={1}>
+                  {branchLabel(dsrBranches, dsrLocations)}
+                </Text>
                 <Icon
                   name="chevron-down"
                   size={18}
@@ -926,12 +1082,12 @@ const ReportScreen = ({ navigation }) => {
               <TouchableOpacity
                 style={[
                   styles.dsrGenerateBtn,
-                  (dsrEmailing || dsrDownloading || !dsrLocations.length) && {
+                  (dsrEmailing || dsrDownloading || !dsrBranches.length) && {
                     opacity: 0.6,
                   },
                 ]}
                 onPress={emailDSR}
-                disabled={dsrEmailing || dsrDownloading || !dsrLocations.length}
+                disabled={dsrEmailing || dsrDownloading || !dsrBranches.length}
               >
                 {dsrEmailing ? (
                   <ActivityIndicator size="small" color="#fff" />
@@ -948,12 +1104,12 @@ const ReportScreen = ({ navigation }) => {
               <TouchableOpacity
                 style={[
                   styles.dsrDownloadBtn,
-                  (dsrEmailing || dsrDownloading || !dsrLocations.length) && {
+                  (dsrEmailing || dsrDownloading || !dsrBranches.length) && {
                     opacity: 0.6,
                   },
                 ]}
                 onPress={downloadDSR}
-                disabled={dsrEmailing || dsrDownloading || !dsrLocations.length}
+                disabled={dsrEmailing || dsrDownloading || !dsrBranches.length}
               >
                 {dsrDownloading ? (
                   <ActivityIndicator size="small" color={PRIMARY} />
@@ -1065,6 +1221,25 @@ const ReportScreen = ({ navigation }) => {
                 />
               </TouchableOpacity>
 
+              <Text style={[styles.modalLabel, { marginTop: 16 }]}>
+                Branches
+              </Text>
+              <TouchableOpacity
+                style={styles.modalDateBtn}
+                onPress={() => setShowIpdBranchPicker(true)}
+              >
+                <Icon name="hospital-building" size={18} color={PRIMARY} />
+                <Text style={styles.modalDateText} numberOfLines={1}>
+                  {branchLabel(ipdBranches, dsrLocations)}
+                </Text>
+                <Icon
+                  name="chevron-down"
+                  size={18}
+                  color="#999"
+                  style={{ marginLeft: 'auto' }}
+                />
+              </TouchableOpacity>
+
               {/* Status selector */}
               <Text style={[styles.modalLabel, { marginTop: 16 }]}>Status</Text>
               {Platform.OS === 'ios' ? (
@@ -1109,8 +1284,8 @@ const ReportScreen = ({ navigation }) => {
                   style={styles.chip}
                   textStyle={styles.chipText}
                 >
-                  {dsrLocations.length} branch
-                  {dsrLocations.length === 1 ? '' : 'es'}
+                  {ipdBranches.length} branch
+                  {ipdBranches.length === 1 ? '' : 'es'}
                 </Chip>
                 <Chip
                   icon="tag-outline"
@@ -1124,12 +1299,12 @@ const ReportScreen = ({ navigation }) => {
               <TouchableOpacity
                 style={[
                   styles.dsrGenerateBtn,
-                  (ipdEmailing || ipdDownloading || !dsrLocations.length) && {
+                  (ipdEmailing || ipdDownloading || !ipdBranches.length) && {
                     opacity: 0.6,
                   },
                 ]}
                 onPress={() => runIPDDue('email')}
-                disabled={ipdEmailing || ipdDownloading || !dsrLocations.length}
+                disabled={ipdEmailing || ipdDownloading || !ipdBranches.length}
               >
                 {ipdEmailing ? (
                   <ActivityIndicator size="small" color="#fff" />
@@ -1146,12 +1321,12 @@ const ReportScreen = ({ navigation }) => {
               <TouchableOpacity
                 style={[
                   styles.dsrDownloadBtn,
-                  (ipdEmailing || ipdDownloading || !dsrLocations.length) && {
+                  (ipdEmailing || ipdDownloading || !ipdBranches.length) && {
                     opacity: 0.6,
                   },
                 ]}
                 onPress={() => runIPDDue('download')}
-                disabled={ipdEmailing || ipdDownloading || !dsrLocations.length}
+                disabled={ipdEmailing || ipdDownloading || !ipdBranches.length}
               >
                 {ipdDownloading ? (
                   <ActivityIndicator size="small" color={PRIMARY} />
@@ -1515,23 +1690,27 @@ const ReportScreen = ({ navigation }) => {
         open={showFromPicker}
         date={pFromDate}
         mode="date"
-        maximumDate={pToDate}
-        onConfirm={date => {
+        maximumDate={today}
+        onConfirm={d => {
           setShowFromPicker(false);
-          setPFromDate(date);
+          const next = startOfDay(d);
+          setPFromDate(next);
+          if (pToDate < next) setPToDate(next);
         }}
         onCancel={() => setShowFromPicker(false)}
       />
+
       <DatePicker
         modal
         open={showToPicker}
         date={pToDate}
         mode="date"
-        minimumDate={pFromDate}
-        maximumDate={new Date()}
-        onConfirm={date => {
+        maximumDate={today}
+        onConfirm={d => {
           setShowToPicker(false);
-          setPToDate(date);
+          const next = startOfDay(d);
+          setPToDate(next);
+          if (next < pFromDate) setPFromDate(next);
         }}
         onCancel={() => setShowToPicker(false)}
       />
@@ -1542,10 +1721,10 @@ const ReportScreen = ({ navigation }) => {
         open={showDsrPicker}
         date={dsrDate}
         mode="date"
-        maximumDate={new Date()}
+        maximumDate={today}
         onConfirm={date => {
           setShowDsrPicker(false);
-          setDsrDate(date);
+          setDsrDate(startOfDay(date));
           setDsrResult(null);
         }}
         onCancel={() => setShowDsrPicker(false)}
@@ -1557,15 +1736,11 @@ const ReportScreen = ({ navigation }) => {
         open={showIpdFrom}
         date={ipdFrom}
         mode="date"
-        minimumDate={(() => {
-          const min = new Date(ipdTo);
-          min.setDate(min.getDate() - (IPD_DUE_MAX_DAYS - 1));
-          return min;
-        })()}
+        minimumDate={ipdFromMin}
         maximumDate={ipdTo}
         onConfirm={date => {
           setShowIpdFrom(false);
-          setIpdFrom(date);
+          setIpdFrom(startOfDay(date));
           setIpdResult(null);
         }}
         onCancel={() => setShowIpdFrom(false)}
@@ -1576,15 +1751,10 @@ const ReportScreen = ({ navigation }) => {
         date={ipdTo}
         mode="date"
         minimumDate={ipdFrom}
-        maximumDate={(() => {
-          const cap = new Date(ipdFrom);
-          cap.setDate(cap.getDate() + (IPD_DUE_MAX_DAYS - 1));
-          const today = new Date();
-          return cap < today ? cap : today;
-        })()}
+        maximumDate={ipdToMax}
         onConfirm={date => {
           setShowIpdTo(false);
-          setIpdTo(date);
+          setIpdTo(startOfDay(date));
           setIpdResult(null);
         }}
         onCancel={() => setShowIpdTo(false)}
@@ -1613,6 +1783,30 @@ const ReportScreen = ({ navigation }) => {
           />
         </>
       )}
+
+      <MultiSelectModal
+        visible={showIpdBranchPicker}
+        title="Select Branches"
+        options={dsrLocations}
+        selected={ipdBranches}
+        onChange={sel => {
+          setIpdBranches(sel);
+          setIpdResult(null);
+        }}
+        onClose={() => setShowIpdBranchPicker(false)}
+      />
+
+      <MultiSelectModal
+        visible={showDsrBranchPicker}
+        title="Select Branches"
+        options={dsrLocations}
+        selected={dsrBranches}
+        onChange={sel => {
+          setDsrBranches(sel);
+          setDsrResult(null);
+        }}
+        onClose={() => setShowDsrBranchPicker(false)}
+      />
     </SafeAreaView>
   );
 };

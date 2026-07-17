@@ -1350,7 +1350,7 @@ const AdminHome = ({ navigation }) => {
                 ? [
                     {
                       label: 'Performace Tracker',
-                      route: 'PerformanceTracking',
+                      route: 'TargetComparison',
                       params: { from: from, to: to },
                       color: '#0ffe37',
                       icon: 'trending-up',
@@ -1364,6 +1364,18 @@ const AdminHome = ({ navigation }) => {
                     },
                   ]
                 : []),
+              // ...(role === 'SuperAdmin' ||
+              // ['Owner', 'Partner', 'Cluster Head', 'HO User'].includes(subRole)
+              //   ? [
+              //       {
+              //         label: 'Service Ticketing',
+              //         route: 'ServiceTicketing',
+              //         params: {},
+              //         color: '#0D6644',
+              //         icon: 'confirmation-number',
+              //       },
+              //     ]
+              //   : []),
             ].map(tile => (
               <TouchableOpacity
                 key={tile.label}
