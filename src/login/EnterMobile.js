@@ -76,6 +76,20 @@ const EnterMobile = ({ navigation }) => {
             console.log(data1);
             if (data1.deviceId === deviceId && data1.isActive) {
               if (data1.isAllowed) {
+                // ← TICKETING ROUTING — a returning Department Head/User skips to Ticketing.
+                if (
+                  ['Department Head', 'Department User'].includes(data1.subRole)
+                ) {
+                  dispatch(setRole(data1.role || 'User'));
+                  dispatch(setSubRole(data1.subRole));
+                  dispatch(
+                    setLocation(data1.department || data1.location || ''),
+                  );
+                  dispatch(setLocationArray([]));
+                  setLoading(false);
+                  navigation.navigate('TicketingHome');
+                  return;
+                }
                 // Dispatch the location to Redux
                 if (
                   data1.role &&

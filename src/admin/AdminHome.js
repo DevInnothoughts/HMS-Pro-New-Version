@@ -42,6 +42,7 @@ import {
 } from 'react-native-safe-area-context';
 
 import { WebView } from 'react-native-webview';
+import AppDrawer from '../common/AppDrawer';
 
 const getISTDate = date => {
   const now = new Date(date);
@@ -109,6 +110,7 @@ const AdminHome = ({ navigation }) => {
     clusterHead: false,
   });
   const [borderColor, setBorderColor] = useState('#0a0');
+  const [menuOpen, setMenuOpen] = useState(false);
 
   const colors = ['#0a0', '#a00', '#00a', '#fa0', '#0af'];
   const BACKEND_URL = 'https://wedoc.in/hms'; //'https://wedoc.in/hms'; //'https://admin.wedoc.in/ivr'; //
@@ -544,17 +546,12 @@ const AdminHome = ({ navigation }) => {
         >
           <TouchableOpacity
             activeOpacity={0.6}
-            style={styles.LogoutbuttonContainer}
-            onPress={() => logoutHandler()}
+            style={styles.menuBtn}
+            onPress={() => setMenuOpen(true)}
+            accessibilityRole="button"
+            accessibilityLabel="Open menu"
           >
-            <Image
-              style={{
-                width: 50,
-                height: 50,
-                objectFit: 'contain',
-              }}
-              source={require('../../assets/logo_hhc.png')}
-            />
+            <Icon name="menu" size={24} color="#0f6b3c" />
           </TouchableOpacity>
           <View
             style={{
@@ -1593,6 +1590,14 @@ const AdminHome = ({ navigation }) => {
 
       <BottomTab navigation={navigation} />
 
+      <AppDrawer
+        visible={menuOpen}
+        onClose={() => setMenuOpen(false)}
+        navigation={navigation}
+        active="performance"
+        onLogout={logoutHandler}
+      />
+
       {role === 'SuperAdmin' && (
         <TouchableOpacity
           style={styles.aiFab}
@@ -2087,5 +2092,20 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     backgroundColor: Colors.background,
+  },
+  // .menuBtn from hhc_hms_mobile_ecosystem.html
+  menuBtn: {
+    width: 42,
+    height: 42,
+    borderRadius: 13,
+    backgroundColor: '#fff',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginHorizontal: 9,
+    shadowColor: '#000',
+    shadowOpacity: 0.08,
+    shadowRadius: 6,
+    shadowOffset: { width: 0, height: 4 },
+    elevation: 3,
   },
 });

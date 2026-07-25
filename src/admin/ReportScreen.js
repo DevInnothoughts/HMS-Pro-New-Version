@@ -27,6 +27,7 @@ import { useSelector } from 'react-redux';
 import RNFS from 'react-native-fs';
 import XLSX from 'xlsx';
 import Share from 'react-native-share';
+import LostLeadsTab from './LostLeadsTab';
 
 const BACKEND_URL = 'https://wedoc.in/hms';
 const TIMEOUT_DURATION = 30000; // 30s — Excel queries over a date range can be slow
@@ -44,6 +45,13 @@ const PREVIEW_ROW_LIMIT = 100; // cap rows rendered on screen; export still incl
 
 const PRIMARY = '#01458e';
 const GREEN = '#2e7d32';
+
+const MODE_TITLES = {
+  report: 'Reports',
+  dsr: 'Daily Collection Report',
+  ipddue: 'IPD Due Report',
+  lostleads: 'Lost Leads Report',
+};
 
 // ── Date helper (IST calendar day, tz-safe) ───────────────
 const getISTDate = date => {
@@ -959,13 +967,7 @@ const ReportScreen = ({ navigation }) => {
           <Icon name="arrow-left" size={22} color="#fff" />
         </TouchableOpacity>
         <View style={{ flex: 1, marginLeft: 10 }}>
-          <Text style={styles.headerTitle}>
-            {mode === 'report'
-              ? 'Reports'
-              : mode === 'dsr'
-              ? 'Daily Collection Report'
-              : 'IPD Due Report'}
-          </Text>
+          <Text style={styles.headerTitle}>{MODE_TITLES[mode]}</Text>
           <Text style={styles.headerSubDate} numberOfLines={1}>
             {mode === 'report'
               ? `${branch} · ${visitType} · ${sheetType}`
@@ -991,6 +993,7 @@ const ReportScreen = ({ navigation }) => {
             { value: 'report', label: 'Reports' },
             { value: 'dsr', label: 'DCR' },
             { value: 'ipddue', label: 'IPD Due' },
+            { value: 'lostleads', label: 'Lost Leads' },
           ]}
         />
       </View>
@@ -1387,6 +1390,10 @@ const ReportScreen = ({ navigation }) => {
             </Card>
           )}
         </ScrollView>
+      )}
+
+      {mode === 'lostleads' && (
+        <LostLeadsTab locations={dsrLocations} backendUrl={BACKEND_URL} />
       )}
 
       {/* Body (report mode) */}

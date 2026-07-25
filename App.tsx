@@ -64,6 +64,10 @@ import IHXPatientTracker from './src/admin/IHXPatientTracker';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import DoctorPerformanceBranchList from './src/admin/DoctorPerformanceBranchList';
 import DoctorPerformance from './src/admin/DoctorPerformance';
+import TicketingHome from './src/ticketing/TicketingHome';
+import TicketDetail from './src/ticketing/TicketDetail';
+import RecruitmentHome from './src/recruitment/RecruitmentHome';
+import RequestDetail from './src/recruitment/RequestDetail';
 
 const Stack = createNativeStackNavigator();
 
@@ -536,28 +540,25 @@ function App(): React.JSX.Element {
                 component={DoctorPerformance}
                 options={{ headerShown: false }}
               />
+
               <Stack.Screen
-                name="ServiceTicketing"
-                component={
-                  require('./src/admin/serviceTicketing/ServiceTicketingHome')
-                    .default
-                }
+                name="TicketingHome"
+                component={TicketingHome}
                 options={{ headerShown: false }}
               />
               <Stack.Screen
-                name="RaiseServiceTicket"
-                component={
-                  require('./src/admin/serviceTicketing/RaiseServiceTicket')
-                    .default
-                }
+                name="TicketDetail"
+                component={TicketDetail}
                 options={{ headerShown: false }}
               />
               <Stack.Screen
-                name="ServiceTicketDetail"
-                component={
-                  require('./src/admin/serviceTicketing/ServiceTicketDetail')
-                    .default
-                }
+                name="RecruitmentHome"
+                component={RecruitmentHome}
+                options={{ headerShown: false }}
+              />
+              <Stack.Screen
+                name="RecruitmentDetail"
+                component={RequestDetail}
                 options={{ headerShown: false }}
               />
             </Stack.Navigator>

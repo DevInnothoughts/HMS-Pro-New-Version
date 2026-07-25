@@ -114,6 +114,26 @@ const VerifyOTP = ({ navigation }) => {
           await firestore().collection('users').doc(mobile).update(data1);
           await AsyncStorage.setItem('deviceId', uniqueId);
           await AsyncStorage.setItem('mobile', mobile);
+
+          // ── ticketing routing ──────────────────────────────────────────────
+          // A Department Head / User is role:'User', so without this they fall
+          // through the checks below to AdminHome. They're cross-branch — their
+          // department is their scope — so location holds the department and
+          // locationArray is empty. Must stay ABOVE the role checks.
+          if (
+            data1.subRole === 'Department Head' ||
+            data1.subRole === 'Department User'
+          ) {
+            dispatch(setRole(data1.role ? data1.role : 'User'));
+            dispatch(setSubRole(data1.subRole));
+            dispatch(setLocation(data1.department ? data1.department : ''));
+            dispatch(setLocationArray([]));
+            setLoading(false);
+            navigation.navigate('TicketingHome');
+            return;
+          }
+          // ───────────────────────────────────────────────────────────────────
+
           // Dispatch the location to Redux
           if (
             data1.role &&

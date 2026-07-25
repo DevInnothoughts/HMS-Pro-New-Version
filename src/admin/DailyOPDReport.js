@@ -41,6 +41,7 @@ const DailyOPDReport = ({ navigation }) => {
   const [labCollection, setLabCollection] = useState([]);
   const [pharmacyCollection, setPharmacyCollection] = useState([]);
   const [testReport, setTestReport] = useState([]);
+  const [opdReport, setOpdReport] = useState([]);
   const [loading, setLoading] = useState(false);
   const [loading1, setLoading1] = useState(false);
   const [visible1, setVisible1] = useState(false);
@@ -100,6 +101,7 @@ const DailyOPDReport = ({ navigation }) => {
           setPharmacyCollection(res.pharmacyCollection);
           setTestReport(res.testReport);
           setOpdCollection(res.opdCollection);
+          setOpdReport(res.opdReport);
         })
         .finally(() => setLoading(false));
     } catch (error) {
@@ -119,6 +121,7 @@ const DailyOPDReport = ({ navigation }) => {
   const handleSubmit = () => {
     Alert.alert('Success', 'Report has been submitted successfully!');
   };
+
   return (
     <SafeAreaView style={styles.maincontainer} edges={['top', 'bottom']}>
       <View style={styles.headerContainer}>
@@ -249,13 +252,32 @@ const DailyOPDReport = ({ navigation }) => {
             />
           </Table>
         </View> */}
-        {/* Test Details */}
+
+        {/* OPD Details */}
+        {opdReport.length > 0 && (
+          <View style={styles.tableContainer}>
+            <Table borderStyle={styles.border}>
+              <Row
+                data={['OPD', 'Amount']}
+                style={{ ...styles.head, backgroundColor: '#93f552' }}
+                textStyle={styles.headerText}
+              />
+              <Rows
+                data={opdReport}
+                style={styles.row}
+                textStyle={styles.text}
+              />
+            </Table>
+          </View>
+        )}
+
+        {/* Lab Details */}
         {testReport.length > 0 && (
           <View style={styles.tableContainer}>
             <Table borderStyle={styles.border}>
               <Row
-                data={['Test', 'Amount']}
-                style={styles.head}
+                data={['Lab', 'Amount']}
+                style={{ ...styles.head, backgroundColor: 'rgb(147, 245, 82)' }}
                 textStyle={styles.headerText}
               />
               <Rows
@@ -413,6 +435,7 @@ const DailyOPDReport = ({ navigation }) => {
             </TableWrapper>
           </Table>
         </View>
+
         <View style={styles.maincontainer}>
           <Button
             mode="outlined"
