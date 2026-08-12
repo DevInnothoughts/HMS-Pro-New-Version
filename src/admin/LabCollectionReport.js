@@ -28,18 +28,12 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useSelector } from 'react-redux';
 
-// Used only until the API responds. LAB is no longer part of OPD — it has its
-// own report now (LabCollectionReport), and the backend decides the split from
-// consultationMasterData rather than from a hardcoded name.
-const DEFAULT_STATUS_LIST = [
-  'CONSULTATION',
-  'PROCTOSCOPY',
-  'FOLLOW-UP',
-  'BUGSPEAKS',
-  'OTHER',
-];
+// Lab tests differ per branch, so the chips come from the API's
+// `consultationList` (derived from consultationMasterData). This is only the
+// placeholder shown before the first response lands.
+const DEFAULT_STATUS_LIST = ['OTHER'];
 
-const OPDCollectionReport = ({ navigation }) => {
+const LabCollectionReport = ({ navigation }) => {
   const route = useRoute();
   const location = useSelector(state => state.location.value);
   const [page, setPage] = useState(0);
@@ -63,7 +57,7 @@ const OPDCollectionReport = ({ navigation }) => {
   const [isExpanded, setIsExpanded] = useState(false);
   const [expandedPatientId, setExpandedPatientId] = useState(null);
   const [filteredRecords, setFilteredRecords] = useState([]);
-  const [OPDCollectionData, setOPDCollectionData] = useState([]);
+  const [LabCollectionData, setLabCollectionData] = useState([]);
   const [billType, setBillType] = useState('');
   const [summaryData, setSummaryData] = useState({});
   const [statusList, setStatusList] = useState(DEFAULT_STATUS_LIST);
@@ -78,7 +72,7 @@ const OPDCollectionReport = ({ navigation }) => {
   };
 
   useEffect(() => {
-    fetchOPDCollection(
+    fetchLabCollection(
       location,
       fromDate.toISOString().split('T')[0],
       toDate.toISOString().split('T')[0],
@@ -113,7 +107,7 @@ const OPDCollectionReport = ({ navigation }) => {
     setPage(page - 1);
   };
 
-  const fetchOPDCollection = (location, from, to) => {
+  const fetchLabCollection = (location, from, to) => {
     const requestOptions = {
       method: 'GET',
       headers: {
@@ -124,13 +118,13 @@ const OPDCollectionReport = ({ navigation }) => {
     try {
       setLoading(true);
       fetch(
-        `${BACKEND_URL}/OPDCollection/v4?location=${location}&from=${from}&to=${to}&section=OPD`,
+        `${BACKEND_URL}/OPDCollection/v4?location=${location}&from=${from}&to=${to}&section=LAB`,
         requestOptions,
       )
         .then(response => response.json())
         .then(res => {
           const rows = res.data || [];
-          setOPDCollectionData(rows);
+          setLabCollectionData(rows);
           const count = new Set(rows.map(row => row.patient_id)).size;
           setUniquePatientCount(count);
           setFilteredRecords(rows);
@@ -157,8 +151,6 @@ const OPDCollectionReport = ({ navigation }) => {
     setPage(0);
 
     if (type) {
-      // Anything not in a named bucket falls into OTHER, so the chips always
-      // add up to the full row set no matter what the master table contains.
       const known = statusList.filter(s => s !== 'OTHER');
       const consultationOf = item =>
         String(item.consultation ?? '')
@@ -167,8 +159,8 @@ const OPDCollectionReport = ({ navigation }) => {
 
       const filtered =
         type !== 'OTHER'
-          ? OPDCollectionData.filter(item => consultationOf(item) === type)
-          : OPDCollectionData.filter(
+          ? LabCollectionData.filter(item => consultationOf(item) === type)
+          : LabCollectionData.filter(
               item => !known.includes(consultationOf(item)),
             );
 
@@ -176,24 +168,24 @@ const OPDCollectionReport = ({ navigation }) => {
       setFilteredRecords2(filtered);
       setUniquePatientCount(new Set(filtered.map(row => row.patient_id)).size);
     } else {
-      setFilteredRecords(OPDCollectionData); // Show all if cleared
-      setFilteredRecords2(OPDCollectionData);
+      setFilteredRecords(LabCollectionData); // Show all if cleared
+      setFilteredRecords2(LabCollectionData);
       setUniquePatientCount(
-        new Set(OPDCollectionData.map(row => row.patient_id)).size,
+        new Set(LabCollectionData.map(row => row.patient_id)).size,
       );
     }
   };
 
-  const fetchOPDData = async () => {
+  const fetchLabData = async () => {
     try {
       setLoading1(true);
-      fetchOPDCollection(
+      fetchLabCollection(
         location,
         fromDate.toISOString().split('T')[0],
         toDate.toISOString().split('T')[0],
       );
     } catch (error) {
-      console.error('Error fetching OPD data:', error);
+      console.error('Error fetching LAB data:', error);
     } finally {
       setLoading1(false);
       hideModal1();
@@ -202,9 +194,9 @@ const OPDCollectionReport = ({ navigation }) => {
 
   const handleClick = async () => {
     try {
-      await fetchOPDData();
+      await fetchLabData();
     } catch (error) {
-      console.error('Error fetching OPD data:', error);
+      console.error('Error fetching LAB data:', error);
     }
   };
 
@@ -276,7 +268,7 @@ const OPDCollectionReport = ({ navigation }) => {
                     alignItems: 'center',
                   }}
                 >
-                  <Text style={styles.header}> Total : ₹</Text>
+                  <Text style={styles.header}> LAB : ₹</Text>
                   <Text style={styles.header}>
                     {new Intl.NumberFormat().format(
                       totalCash + totalCard + totalOnline,
@@ -361,6 +353,7 @@ const OPDCollectionReport = ({ navigation }) => {
               </View>
             </Card>
 
+            {/* One chip per lab test billed in the range, driven by the API. */}
             <View style={styles.headerSubContainer1}>
               {statusList.map(status => {
                 const data = summaryData?.[status] || {};
@@ -387,7 +380,9 @@ const OPDCollectionReport = ({ navigation }) => {
                         }}
                       >
                         <View>
-                          <Text style={styles.subHeader}>{status}</Text>
+                          <Text style={styles.subHeader} numberOfLines={2}>
+                            {status}
+                          </Text>
                           <Text style={styles.subHeader}>
                             Total: ₹{' '}
                             {(
@@ -547,7 +542,7 @@ const OPDCollectionReport = ({ navigation }) => {
                       {expandedPatientId === item.patient_id && (
                         <>
                           <Text style={styles.cell}>
-                            Consultation : {item.consultation}
+                            Test : {item.consultation}
                           </Text>
                           <Text style={styles.cell}>
                             Receipt :{' '}
@@ -866,7 +861,7 @@ const OPDCollectionReport = ({ navigation }) => {
   );
 };
 
-export default OPDCollectionReport;
+export default LabCollectionReport;
 
 const styles = StyleSheet.create({
   maincontainer: {

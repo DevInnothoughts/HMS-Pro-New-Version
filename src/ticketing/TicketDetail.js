@@ -7,10 +7,9 @@
 // This is the screen the whole workflow runs through — every role acts here, and
 // each sees a different set of buttons:
 //
-//   Cluster Head    Approve · Reject · Re-route
-//   Dept Head       Assign · Wrong department · Approve fix · Send back
-//   Dept User       Start work · Waiting on vendor · Mark fixed
-//   Partner/raiser  Close ticket · Reopen
+//   Cluster Head    Approve · Reconsider
+//   Dept Head       Update progress · Re-assign · Forward · Resolve · Close
+//   Partner/raiser  Reopen
 //
 // None of that is decided here. The server sends `ticket.actions` and this
 // screen renders a button per entry, labelled from ACTION_UI. A role that gains
@@ -38,13 +37,7 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useSelector } from 'react-redux';
 
-import {
-  actOnTicket,
-  buildActor,
-  fetchAssignees,
-  fetchTicket,
-  getMeta,
-} from './api';
+import { actOnTicket, buildActor, fetchTicket, getMeta } from './api';
 import {
   Badge,
   Btn,
@@ -58,49 +51,58 @@ import { C, F, S, STATUS_HINT } from './theme';
 
 /**
  * How each server action presents itself.
- *   needs:   'remark' | 'assignee' | 'department' | 'progress' | null
+ *   needs:   'remark' | 'approval' | 'departmentReason' | 'progress' | null
  *   tone:    styles the button
  */
 const ACTION_UI = {
-  // Approving takes a department because this is the last cheap moment to fix
-  // it. A partner picking the wrong one is common, and the alternative is the
-  // department head reverting and the cluster head re-routing — two more steps
-  // and a delay, for something visible right here. Pre-filled with whatever was
-  // chosen, so leaving it alone is the default.
+  // PDF §4 and §7 — approving is three decisions at once: which department,
+  // what priority, and how long they get. All three are the Cluster Head's call
+  // and all three land in the trail, so they belong in one confirmation rather
+  // than three screens. Pre-filled from the ticket, so approving unchanged is
+  // one tap.
   approve: {
     label: 'Approve',
     tone: 'primary',
-    needs: 'department',
-    title: 'Approve this ticket?',
-    body: 'It goes to the department head to assign. Change the department below if it was raised against the wrong one.',
+    needs: 'approval',
+    title: 'Approve this ticket',
+    body: 'Confirm the department and priority, and set how long the fix should take.',
   },
-  reject: {
-    label: 'Reject',
+  reconsider: {
+    label: 'Reconsider',
     tone: 'danger',
     needs: 'remark',
-    title: 'Reject this ticket',
-    body: 'Tell them why — they will see this.',
+    title: 'Send back for reconsideration',
+    body: 'Say what needs rethinking — the branch reads this.',
   },
-  route: {
-    label: 'Send to right department',
-    tone: 'primary',
-    needs: 'department',
-    title: 'Re-route this ticket',
-    body: 'Pick the department this should have gone to.',
-  },
-  assign: {
-    label: 'Assign to someone',
-    tone: 'primary',
-    needs: 'assignee',
-    title: 'Assign this ticket',
-    body: 'Pick who in your department will fix it.',
-  },
-  revert: {
-    label: 'Wrong department',
+  // Local fix (Operations). Shown only when the server offers it, and it only
+  // offers it for a flagged department — so no department check is needed here.
+  sendToBranch: {
+    label: 'Send to branch to fix',
     tone: 'secondary',
+    needs: 'localFix',
+    title: 'Send this to the branch',
+    body: 'The branch fixes this one themselves. Set how long they have — you sign it off when it is done.',
+  },
+  fixedLocally: {
+    label: 'Fixed locally',
+    tone: 'primary',
     needs: 'remark',
-    title: 'Send back to the Cluster Head',
-    body: 'Say which department this belongs to.',
+    title: 'Mark this fixed',
+    body: 'What did you do? Your Cluster Head reviews this before resolving it.',
+  },
+  resolveLocal: {
+    label: 'Mark resolved',
+    tone: 'primary',
+    needs: 'remark',
+    title: 'Resolve this ticket',
+    body: 'Confirm the branch has fixed it. They can still reopen if not.',
+  },
+  closeLocal: {
+    label: 'Close ticket',
+    tone: 'primary',
+    needs: null,
+    title: 'Close this ticket?',
+    body: 'This finishes it.',
   },
   progress: {
     label: 'Update progress',
@@ -109,33 +111,35 @@ const ACTION_UI = {
     title: 'Update progress',
     body: 'Where has this got to?',
   },
-  fix: {
-    label: 'Mark fixed',
+  // PDF §5 — replaces "Wrong department". The head moves it directly instead of
+  // bouncing it back to the Cluster Head to re-route.
+  reassign: {
+    label: 'Re-assign to different department',
+    tone: 'secondary',
+    needs: 'departmentReason',
+    title: 'Re-assign this ticket',
+    body: 'This is not your department’s work. Pick whose it is — it leaves your queue.',
+  },
+  forward: {
+    label: 'Forward to another department',
+    tone: 'secondary',
+    needs: 'departmentReason',
+    title: 'Forward this ticket',
+    body: 'Your part is done. Pick the department that continues it.',
+  },
+  resolve: {
+    label: 'Mark resolved',
     tone: 'primary',
     needs: 'remark',
-    title: 'Mark this fixed',
-    body: 'What did you do? Your department head reads this before signing off.',
-  },
-  deptApprove: {
-    label: 'Approve fix',
-    tone: 'primary',
-    needs: null,
-    title: 'Approve this fix?',
-    body: 'The person who raised it can then close it.',
-  },
-  sendBack: {
-    label: 'Send back',
-    tone: 'danger',
-    needs: 'remark',
-    title: 'Send this back',
-    body: 'Say what is still wrong.',
+    title: 'Mark this resolved',
+    body: 'What did you do? The branch reads this.',
   },
   close: {
     label: 'Close ticket',
     tone: 'primary',
     needs: null,
     title: 'Close this ticket?',
-    body: 'This finishes it. You can’t undo a close.',
+    body: 'This finishes it.',
   },
   reopen: {
     label: 'Reopen',
@@ -146,18 +150,53 @@ const ACTION_UI = {
   },
 };
 
+// What this person is being asked to do, when the ticket is on their desk.
+// Ordered by precedence: a ticket offering several moves is named by the one
+// that is genuinely a decision — approving outranks commenting on it.
+//
+// `comment` and `progress` are deliberately absent. Commenting is always
+// available to everyone, and updating progress is something you MAY do rather
+// than something the ticket is waiting on — treating either as "your move"
+// would light this box up on every ticket and make it mean nothing.
+const MY_TURN = {
+  approve: 'At your stage for approval',
+  reconsider: 'At your stage for approval',
+  // Same wording as approve on purpose: a Cluster Head looking at an Open
+  // ticket is at the approval stage whichever way they send it.
+  sendToBranch: 'At your stage for approval',
+  fixedLocally: 'With your branch — fix it and mark it done here',
+  resolveLocal: 'Fixed at the branch — resolve it if you are satisfied',
+  closeLocal: 'With you — close it once you are satisfied',
+  resolve: 'With you — resolve it when the work is done',
+  close: 'With you — close it once you are satisfied',
+  reassign: 'With you — resolve it, or move it to the right department',
+  forward: 'With you — resolve it, or move it to the right department',
+  reopen: 'Resolved. Reopen it if it is still not right.',
+};
+
+// Offered as words rather than a number box: "2 days" is what a Cluster Head is
+// actually deciding, and an open field invites 5 or 5000 by accident.
+const SLA_OPTIONS = [
+  { label: '4 hours', hours: 4 },
+  { label: '8 hours', hours: 8 },
+  { label: '1 day', hours: 24 },
+  { label: '2 days', hours: 48 },
+  { label: '3 days', hours: 72 },
+  { label: '1 week', hours: 168 },
+  { label: '2 weeks', hours: 336 },
+];
+
+const SLA_DEFAULT = { Critical: '8 hours', Medium: '3 days', Low: '1 week' };
+
 /** Timeline wording. Reads as a sentence: "<name> approved it". */
 const ACTIVITY_VERB = {
   RAISED: 'raised this',
   APPROVED: 'approved it',
-  REJECTED: 'rejected it',
-  ROUTED: 're-routed it',
-  ASSIGNED: 'assigned it',
-  REVERTED: 'sent it back — wrong department',
+  SENT_BACK: 'sent it back to be reconsidered',
+  REASSIGNED: 're-assigned it — wrong department',
+  FORWARDED: 'forwarded it',
   PROGRESS: 'updated progress',
-  FIXED: 'marked it fixed',
-  DEPT_APPROVED: 'approved the fix',
-  SENT_BACK: 'sent the fix back',
+  RESOLVED: 'resolved it',
   CLOSED: 'closed it',
   REOPENED: 'reopened it',
   COMMENT: 'commented',
@@ -173,7 +212,6 @@ const TicketDetail = ({ navigation, route }) => {
   const [actor, setActor] = useState(null);
   const [ticket, setTicket] = useState(null);
   const [meta, setMeta] = useState(null);
-  const [assignees, setAssignees] = useState([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState('');
@@ -195,16 +233,6 @@ const TicketDetail = ({ navigation, route }) => {
         ]);
         setTicket(t);
         if (m) setMeta(m);
-
-        // Only a department head ever needs the assignee list.
-        if ((t.actions || []).includes('assign')) {
-          try {
-            const r = await fetchAssignees(a, t.department);
-            setAssignees(r?.users || []);
-          } catch (_) {
-            setAssignees([]);
-          }
-        }
       } catch (e) {
         setError(e.message);
       } finally {
@@ -235,7 +263,16 @@ const TicketDetail = ({ navigation, route }) => {
   };
 
   const start = action => {
+    console.log(
+      'start:',
+      action,
+      'ui?',
+      !!ACTION_UI[action],
+      'needs:',
+      ACTION_UI[action]?.needs,
+    );
     const ui = ACTION_UI[action];
+
     if (!ui) return;
 
     if (!ui.needs) {
@@ -243,7 +280,7 @@ const TicketDetail = ({ navigation, route }) => {
         { text: 'Cancel', style: 'cancel' },
         {
           text: ui.label,
-          style: action === 'reject' ? 'destructive' : 'default',
+          style: ui.tone === 'danger' ? 'destructive' : 'default',
           onPress: () => run(action),
         },
       ]);
@@ -253,35 +290,60 @@ const TicketDetail = ({ navigation, route }) => {
     setPrompt({
       action,
       remark: '',
+      // Approving starts on the ticket's own department, priority and a
+      // resolution time suggested by that priority — the Cluster Head is
+      // confirming or correcting, not choosing from scratch. Moving it starts
+      // blank, because picking a DIFFERENT one is the whole point there.
       value:
-        ui.needs === 'assignee'
-          ? assignees[0]?.mobile || ''
-          : ui.needs === 'department'
-          ? // Approving starts on the CURRENT department — the cluster head is
-            // confirming or correcting, not choosing from scratch. Routing starts
-            // blank, because picking a different one is the whole point there.
-            action === 'approve'
-            ? ticket.department || ''
-            : ''
+        ui.needs === 'approval' || ui.needs === 'localFix'
+          ? ticket.department || ''
           : ui.needs === 'progress'
           ? 'In Progress'
           : '',
+      priority: ticket.priority || 'Medium',
+      sla: SLA_DEFAULT[ticket.priority] || '3 days',
     });
   };
 
   const submitPrompt = () => {
-    const { action, remark, value } = prompt;
+    const { action, remark, value, priority, sla } = prompt;
     const ui = ACTION_UI[action];
+
+    // `comment` has no ACTION_UI entry — it is a note, not a workflow action.
+    // Without this, ui.needs below throws on every Post.
+    if (!ui) {
+      if (!remark.trim()) return toast('Write something first.');
+      return run(action, { remark: remark.trim() });
+    }
 
     if (ui.needs === 'remark' && !remark.trim())
       return toast('Add a short reason first.');
-    if (ui.needs === 'assignee' && !value)
-      return toast('Pick who this goes to.');
-    if (ui.needs === 'department' && !value) return toast('Pick a department.');
+    if (ui.needs === 'approval') {
+      if (!value) return toast('Pick a department.');
+      if (!sla) return toast('Set a resolution time.');
+    }
+    if (ui.needs === 'localFix') {
+      if (!sla) return toast('Set a resolution time.');
+      if (!remark.trim()) return toast('Say what the branch should do.');
+    }
+    if (ui.needs === 'departmentReason') {
+      if (!value) return toast('Pick a department.');
+      // The server requires it too, but catching it here saves a round trip and
+      // the reason is the whole point of the move.
+      if (!remark.trim()) return toast('Say why it is moving.');
+    }
 
     const payload = { remark: remark.trim() || undefined };
-    if (ui.needs === 'assignee') payload.assigneeMobile = value;
-    if (ui.needs === 'department') payload.department = value;
+    if (ui.needs === 'approval') {
+      payload.department = value;
+      payload.priority = priority;
+      payload.resolutionHours = SLA_OPTIONS.find(o => o.label === sla)?.hours;
+    }
+    if (ui.needs === 'localFix') {
+      payload.priority = priority;
+      payload.resolutionHours = SLA_OPTIONS.find(o => o.label === sla)?.hours;
+    }
+    if (ui.needs === 'departmentReason') payload.department = value;
     if (ui.needs === 'progress') payload.toStatus = value;
     run(action, payload);
   };
@@ -322,6 +384,9 @@ const TicketDetail = ({ navigation, route }) => {
   }
 
   const actions = ticket.actions || [];
+  // Does the ticket sit with THIS person? Only moves that are genuinely a
+  // decision count — see MY_TURN.
+  const yourMove = actions.some(a => MY_TURN[a]);
   const ui = prompt ? ACTION_UI[prompt.action] : null;
 
   return (
@@ -329,7 +394,10 @@ const TicketDetail = ({ navigation, route }) => {
       <DetailHeader
         onBack={() => navigation.goBack()}
         title={ticket.id}
-        pill={ticket.displayStatus || ticket.status}
+        // The workflow state, not displayStatus: displayStatusOf() collapses a
+        // late ticket to the single word "Overdue", which would duplicate the
+        // red pill beside it AND hide the stage the ticket is actually at.
+        pill={ticket.status}
         overdue={ticket.overdue}
       />
 
@@ -361,29 +429,37 @@ const TicketDetail = ({ navigation, route }) => {
           <View style={S.badges}>
             <Badge tone={ticket.priority}>{ticket.priority}</Badge>
             <Badge>{ticket.department}</Badge>
-            <Badge tone={ticket.displayStatus || ticket.status}>
-              {ticket.displayStatus || ticket.status}
-            </Badge>
+            <Badge tone={ticket.status}>{ticket.status}</Badge>
             {!!ticket.overdue && <Badge tone="overdue">Overdue</Badge>}
           </View>
 
-          {/* The status word alone doesn't say whose move it is. This does. */}
+          {/* The status word alone doesn't say whose move it is. This does — and
+              when the move is THIS person's, it says so plainly instead of
+              describing the ticket in the third person.
+              
+              Keyed on `actions`, not on role: the server already computed what
+              this actor may do, so re-deriving it here would be a second copy
+              of the permission rules and a chance for the two to disagree. */}
           <View
             style={{
               marginTop: 12,
               padding: 12,
               borderRadius: 14,
-              backgroundColor: C.bg,
+              backgroundColor: yourMove ? C.lowBg : C.bg,
               borderWidth: 1,
-              borderColor: C.line,
+              borderColor: yourMove ? C.green2 : C.line,
             }}
           >
-            <Text style={{ fontFamily: F.medium, fontSize: 13, color: C.text }}>
-              {/* Keyed on the precise workflow state on purpose: "Open" as a
-                  word is the same for a ticket awaiting approval and one
-                  awaiting assignment, and this line is where that difference
-                  is worth spelling out. */}
-              {STATUS_HINT[ticket.status] || ticket.status}
+            <Text
+              style={{
+                fontFamily: yourMove ? F.semibold : F.medium,
+                fontSize: 13,
+                color: yourMove ? C.green : C.text,
+              }}
+            >
+              {yourMove
+                ? MY_TURN[actions.find(a => MY_TURN[a])]
+                : STATUS_HINT[ticket.status] || ticket.status}
             </Text>
           </View>
         </View>
@@ -393,35 +469,38 @@ const TicketDetail = ({ navigation, route }) => {
           <Text style={[S.bold, { marginBottom: 8 }]}>Details</Text>
           <Row
             k="Raised by"
-            v={`${ticket.raisedBy} (${
-              ticket.raisedByRole === 'ClusterHead' ? 'Cluster Head' : 'Partner'
-            })`}
+            v={`${ticket.raisedBy}${
+              ticket.raisedByRole === 'SuperAdmin' ? ' (Management)' : ''
+            }`}
           />
           <Row k="Raised on" v={fmt(ticket.raisedAt)} />
           <Row k="Age" v={`${ticket.age} day${ticket.age === 1 ? '' : 's'}`} />
+          {/* PDF §4 — both are null until a Cluster Head approves and sets them.
+              Saying so is better than an em dash, which reads like missing data
+              rather than a decision nobody has made yet. */}
           <Row
-            k="Target fix by"
-            v={fmt(ticket.dueAt)}
+            k="Resolution time"
+            v={ticket.slaHours ? `${ticket.slaHours} hours` : 'Set on approval'}
+          />
+          <Row
+            k="Due"
+            v={ticket.dueAt ? fmt(ticket.dueAt) : 'Set on approval'}
             danger={ticket.overdue}
           />
           <Row k="Owner" v={ticket.owner} />
-          {!!ticket.assigneeName && (
-            <Row k="Assigned to" v={ticket.assigneeName} />
-          )}
           {!!ticket.approvedByName && (
             <Row k="Approved by" v={ticket.approvedByName} />
           )}
-          {!!ticket.deptApprovedByName && (
-            <Row k="Fix signed off by" v={ticket.deptApprovedByName} />
+          {/* PDF §2 — the head resolves their own work; there is no separate
+              sign-off, and no assignee. */}
+          {!!ticket.resolvedByName && (
+            <Row k="Resolved by" v={ticket.resolvedByName} />
           )}
           {!!ticket.closedByName && (
             <Row k="Closed by" v={ticket.closedByName} />
           )}
           {ticket.reopenCount > 0 && (
             <Row k="Reopened" v={`${ticket.reopenCount}×`} danger />
-          )}
-          {ticket.revertCount > 0 && (
-            <Row k="Sent back" v={`${ticket.revertCount}×`} danger />
           )}
           <Row
             k="Attachments"
@@ -641,68 +720,95 @@ const TicketDetail = ({ navigation, route }) => {
                       : ui?.body}
                   </Text>
 
-                  {ui?.needs === 'assignee' && (
-                    <Field label="Assign to">
-                      <Select
-                        label="Assign to"
-                        placeholder={
-                          assignees.length
-                            ? 'Pick a team member'
-                            : 'No one in your department yet'
-                        }
-                        value={prompt.value}
-                        options={assignees.map(u => ({
-                          label: u.name,
-                          value: u.mobile,
-                          hint: `${u.openTickets} open`,
-                        }))}
-                        onChange={v => setPrompt({ ...prompt, value: v })}
-                        disabled={!assignees.length}
-                      />
-                      {!assignees.length && (
-                        <Text style={[S.tiny, { marginTop: 6, color: C.red }]}>
-                          Add someone to your department on the My Team tab
-                          first.
-                        </Text>
-                      )}
-                    </Field>
+                  {ui?.needs === 'approval' && (
+                    <>
+                      <Field label="Department" req>
+                        <Select
+                          label="Department"
+                          placeholder="Pick a department"
+                          value={prompt.value}
+                          options={meta?.departments || []}
+                          onChange={v => setPrompt({ ...prompt, value: v })}
+                        />
+                      </Field>
+                      <Field label="Priority">
+                        <Select
+                          label="Priority"
+                          placeholder="Pick a priority"
+                          value={prompt.priority}
+                          options={meta?.priorities || []}
+                          onChange={v => setPrompt({ ...prompt, priority: v })}
+                        />
+                      </Field>
+                      <Field label="Resolution time" req>
+                        <Select
+                          label="Resolution time"
+                          placeholder="How long?"
+                          value={prompt.sla}
+                          options={SLA_OPTIONS.map(o => o.label)}
+                          onChange={v => setPrompt({ ...prompt, sla: v })}
+                        />
+                      </Field>
+                    </>
                   )}
 
-                  {ui?.needs === 'department' && (
-                    <Field
-                      label={
-                        prompt.action === 'approve'
-                          ? 'Department'
-                          : 'Send it to'
-                      }
-                    >
-                      <Select
-                        label="Department"
-                        placeholder="Pick a department"
-                        value={prompt.value}
-                        // Approving keeps the current department in the list —
-                        // most tickets are right, and removing it would force a
-                        // change. Routing hides it, since re-routing to the same
-                        // department is exactly what the revert objected to.
-                        options={
-                          prompt.action === 'approve'
-                            ? meta?.departments || []
-                            : (meta?.departments || []).filter(
-                                d => d !== ticket.department,
-                              )
+                  {ui?.needs === 'localFix' && (
+                    <>
+                      <Field label="Priority">
+                        <Select
+                          label="Priority"
+                          value={prompt.priority}
+                          options={meta?.priorities || []}
+                          onChange={v => setPrompt({ ...prompt, priority: v })}
+                        />
+                      </Field>
+                      <Field label="Resolution time" req>
+                        <Select
+                          label="Resolution time"
+                          placeholder="How long does the branch have?"
+                          value={prompt.sla}
+                          options={SLA_OPTIONS.map(o => o.label)}
+                          onChange={v => setPrompt({ ...prompt, sla: v })}
+                        />
+                      </Field>
+                    </>
+                  )}
+
+                  {ui?.needs === 'departmentReason' && (
+                    <>
+                      <Field label="Send it to" req>
+                        <Select
+                          label="Department"
+                          placeholder="Pick a department"
+                          value={prompt.value}
+                          options={(meta?.departments || []).filter(
+                            d => d !== ticket.department,
+                          )}
+                          onChange={v => setPrompt({ ...prompt, value: v })}
+                        />
+                      </Field>
+                      <Field
+                        label={
+                          prompt.action === 'reassign'
+                            ? 'Why is it not yours?'
+                            : 'What did you do?'
                         }
-                        onChange={v => setPrompt({ ...prompt, value: v })}
-                      />
-                      {prompt.action === 'approve' &&
-                        prompt.value !== ticket.department && (
-                          <Text
-                            style={[S.tiny, { marginTop: 6, color: C.orange }]}
-                          >
-                            Moving this from {ticket.department} to{' '}
-                            {prompt.value}.
-                          </Text>
-                        )}
-                    </Field>
+                        req
+                      >
+                        <Input
+                          multiline
+                          value={prompt.remark}
+                          onChangeText={t =>
+                            setPrompt({ ...prompt, remark: t })
+                          }
+                          placeholder={
+                            prompt.action === 'reassign'
+                              ? 'This belongs with them because…'
+                              : 'Our part is done — over to them for…'
+                          }
+                        />
+                      </Field>
+                    </>
                   )}
 
                   {ui?.needs === 'progress' && (
@@ -716,20 +822,22 @@ const TicketDetail = ({ navigation, route }) => {
                     </Field>
                   )}
 
-                  <Field
-                    label={prompt.action === 'comment' ? 'Comment' : 'Reason'}
-                  >
-                    <Input
-                      multiline
-                      value={prompt.remark}
-                      onChangeText={t => setPrompt({ ...prompt, remark: t })}
-                      placeholder={
-                        prompt.action === 'comment'
-                          ? 'Anything the others should know'
-                          : 'A line is enough — it goes in the history'
-                      }
-                    />
-                  </Field>
+                  {ui?.needs !== 'departmentReason' && (
+                    <Field
+                      label={prompt.action === 'comment' ? 'Comment' : 'Reason'}
+                    >
+                      <Input
+                        multiline
+                        value={prompt.remark}
+                        onChangeText={t => setPrompt({ ...prompt, remark: t })}
+                        placeholder={
+                          prompt.action === 'comment'
+                            ? 'Anything the others should know'
+                            : 'A line is enough — it goes in the history'
+                        }
+                      />
+                    </Field>
+                  )}
 
                   <View style={S.row}>
                     <View style={S.rowItem}>

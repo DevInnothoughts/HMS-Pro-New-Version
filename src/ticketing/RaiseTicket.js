@@ -87,7 +87,7 @@ const RaiseTicket = ({ meta, actor, ticketRole, onDone }) => {
   }, [isSuperAdmin, allBranches, location, locationArray]);
 
   const departments = meta?.departments || [];
-  const priorities = meta?.priorities || ['Critical', 'High', 'Medium', 'Low'];
+  const priorities = meta?.priorities || ['Critical', 'Medium', 'Low'];
 
   const [center, setCenter] = useState(location || centers[0] || '');
   const [department, setDepartment] = useState('');
@@ -199,12 +199,11 @@ const RaiseTicket = ({ meta, actor, ticketRole, onDone }) => {
           <View style={[S.card, { marginTop: 0 }]}>
             <Text style={S.bold}>Raise a New Ticket</Text>
             <Text style={[S.tiny, { marginTop: 4 }]}>
-              {ticketRole === TICKET_ROLE.CLUSTER_HEAD
-                ? 'You are raising this as Cluster Head, so it skips approval and goes to the department head.'
-                : 'This will be visible to your Cluster Head, who approves it before work starts.'}
+              This will be visible to your Cluster Head, who approves it before
+              work starts.
             </Text>
 
-            <Field label="Center">
+            <Field label="Center" req>
               <Select
                 label="Center"
                 placeholder="Select a center"
@@ -217,7 +216,7 @@ const RaiseTicket = ({ meta, actor, ticketRole, onDone }) => {
             {/* .row — Department and Priority share a line */}
             <View style={S.row}>
               <View style={S.rowItem}>
-                <Field label="Department">
+                <Field label="Department" req>
                   <Select
                     label="Department"
                     placeholder="Select"
@@ -242,6 +241,9 @@ const RaiseTicket = ({ meta, actor, ticketRole, onDone }) => {
 
             {/* Priority drives the SLA clock, so say so rather than leaving it
                 as an unexplained dropdown. */}
+            {/* PDF §4 — priority no longer sets the clock; the Cluster Head does,
+                when they approve. The old copy promised a fix window that nobody
+                had committed to yet. */}
             {!!priority && (
               <View
                 style={{
@@ -252,11 +254,14 @@ const RaiseTicket = ({ meta, actor, ticketRole, onDone }) => {
                 }}
               >
                 <Badge tone={priority}>{priority}</Badge>
-                <Text style={S.tiny}>{SLA_COPY[priority]}</Text>
+                <Text style={[S.tiny, { flex: 1 }]}>
+                  Your Cluster Head confirms this and sets the resolution time
+                  when they approve.
+                </Text>
               </View>
             )}
 
-            <Field label="Issue Type">
+            <Field label="Issue Type" req>
               <Select
                 label="Issue Type"
                 placeholder={
@@ -277,6 +282,7 @@ const RaiseTicket = ({ meta, actor, ticketRole, onDone }) => {
                   ? 'Describe the issue (what is it?)'
                   : 'Describe the issue'
               }
+              req
             >
               <Input
                 multiline
@@ -348,12 +354,3 @@ const RaiseTicket = ({ meta, actor, ticketRole, onDone }) => {
 };
 
 export default RaiseTicket;
-
-// Mirrors CONFIG.SLA_HOURS in ticketingModel.js. If you retune the server,
-// retune these words — they are a promise to the person filing the ticket.
-const SLA_COPY = {
-  Critical: 'Target fix within 8 hours',
-  High: 'Target fix within 1 day',
-  Medium: 'Target fix within 3 days',
-  Low: 'Target fix within 7 days',
-};

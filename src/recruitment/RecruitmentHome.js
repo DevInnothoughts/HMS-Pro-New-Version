@@ -61,6 +61,7 @@ import {
   useToast,
 } from '../ticketing/components';
 import { C, F, S } from '../ticketing/theme';
+import { useFocusEffect } from '@react-navigation/native';
 
 const fmt = d => {
   if (!d) return '';
@@ -348,21 +349,37 @@ const RecruitmentHome = ({ navigation }) => {
     load();
   }, [load]);
 
-  // Back: step out of a sub-screen first, then leave the section.
-  useEffect(() => {
-    const sub = BackHandler.addEventListener('hardwareBackPress', () => {
-      if (tab === 'raise') {
-        setTab('requests');
+  // Back: step out of a sub-screen first, then leave the app.
+  //
+  // useFocusEffect, not useEffect — this screen stays mounted underneath
+  // RecruitmentDetail, and a plain effect would keep the listener live there,
+  // where exitApp() below would quit instead of returning to the list.
+  //
+  // The last step exits, matching AdminHome / DoctorHome / AdAgencyHome.
+  // Returning false handed the press to the navigator, which popped back to the
+  // login screen still sitting in the stack.
+  useFocusEffect(
+    useCallback(() => {
+      const onBack = () => {
+        if (menuOpen) {
+          setMenuOpen(false);
+          return true;
+        }
+        if (tab === 'raise') {
+          setTab('requests');
+          return true;
+        }
+        if (tab !== tabs[0]?.key) {
+          setTab(tabs[0]?.key);
+          return true;
+        }
+        BackHandler.exitApp();
         return true;
-      }
-      if (tab !== tabs[0]?.key) {
-        setTab(tabs[0]?.key);
-        return true;
-      }
-      return false;
-    });
-    return () => sub.remove();
-  }, [tab, tabs]);
+      };
+      const sub = BackHandler.addEventListener('hardwareBackPress', onBack);
+      return () => sub.remove();
+    }, [tab, tabs, menuOpen]),
+  );
 
   const applyFilters = next => {
     setFilters(next);

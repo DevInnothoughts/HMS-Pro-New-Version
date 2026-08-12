@@ -2,7 +2,7 @@
 /* eslint-disable prettier/prettier */
 /* eslint-disable react/react-in-jsx-scope */
 import { useFocusEffect, useRoute } from '@react-navigation/native';
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   Image,
   KeyboardAvoidingView,
@@ -116,6 +116,14 @@ const BotLeads = ({ navigation }) => {
     }, [fetchLeadList, location]),
   );
 
+  const statusCounts = useMemo(() => {
+    const leads = mockLeads || [];
+    return {
+      unattended: leads.filter(item => !item.status).length,
+      enquiry: leads.filter(item => item.status === 'Enquiry').length,
+    };
+  }, [mockLeads]);
+
   // Function to toggle the visibility
   const toggleExpand = () => {
     LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
@@ -159,9 +167,22 @@ const BotLeads = ({ navigation }) => {
       filtered = leadStats.leads.filter(item =>
         phoneSet.has(getLast10Digits(item.phoneno)),
       );
+    } else if (type === 'Unattended') {
+      const source = leadStats.leads || mockLeads;
+      filtered = source.filter(
+        item =>
+          item.status === null ||
+          item.status === undefined ||
+          item.status === '' ||
+          item.status === 'null',
+      );
+    } else if (type === 'Enquiry') {
+      const source = leadStats.leads || mockLeads;
+      filtered = source.filter(item => item.status === 'Enquiry');
     } else {
       filtered = mockLeads;
     }
+
     //console.log('Filtered records: ', filtered);
     setCurrentPage(1);
     setFilteredRecords(filtered);
@@ -381,6 +402,38 @@ const BotLeads = ({ navigation }) => {
                 >
                   <Text style={styles.subHeader}>IPD Conversion</Text>
                   <Text style={styles.subHeader}>{leadStats.ipdCount}</Text>
+                </Card>
+              </TouchableOpacity>
+              <TouchableOpacity
+                onPress={() => handleBillTypeSelect('Enquiry')}
+                activeOpacity={0.7}
+              >
+                <Card
+                  style={{
+                    ...styles.card,
+                    backgroundColor:
+                      billType === 'Enquiry' ? '#edc6a8ff' : '#FFF3F0FF',
+                  }}
+                >
+                  <Text style={styles.subHeader}>Enquiry</Text>
+                  <Text style={styles.subHeader}>{statusCounts.enquiry}</Text>
+                </Card>
+              </TouchableOpacity>
+              <TouchableOpacity
+                onPress={() => handleBillTypeSelect('Unattended')}
+                activeOpacity={0.7}
+              >
+                <Card
+                  style={{
+                    ...styles.card,
+                    backgroundColor:
+                      billType === 'Unattended' ? '#edc6a8ff' : '#FFF3F0FF',
+                  }}
+                >
+                  <Text style={styles.subHeader}>Un-Attended</Text>
+                  <Text style={styles.subHeader}>
+                    {statusCounts.unattended}
+                  </Text>
                 </Card>
               </TouchableOpacity>
               <TouchableOpacity

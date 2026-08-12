@@ -31,6 +31,7 @@ export const TICKET_ROLE = {
 export const SUB_ROLE = {
   PARTNER: 'Owner', // displayed as "Partner"
   PARTNER_ALT: 'Partner', // accepted too
+  BRANCH_ADMIN: 'Admin', // a Partner's POWERS, a different job title
   CLUSTER_HEAD: 'Cluster Head',
   DEPT_HEAD: 'Department Head',
   DEPT_USER: 'Department User',
@@ -55,7 +56,11 @@ export function resolveTicketRole(role, subRole) {
 
   if (s === SUB_ROLE.DEPT_HEAD) return TICKET_ROLE.DEPT_HEAD;
   if (s === SUB_ROLE.DEPT_USER) return TICKET_ROLE.DEPT_USER;
-  if (s === SUB_ROLE.PARTNER || s === SUB_ROLE.PARTNER_ALT)
+  if (
+    s === SUB_ROLE.PARTNER ||
+    s === SUB_ROLE.PARTNER_ALT ||
+    s === SUB_ROLE.BRANCH_ADMIN
+  )
     return TICKET_ROLE.PARTNER;
   if (s === SUB_ROLE.CLUSTER_HEAD) return TICKET_ROLE.CLUSTER_HEAD;
   return TICKET_ROLE.VIEWER;
@@ -72,6 +77,21 @@ export const ROLE_LABEL = {
 };
 
 /**
+ * The header pill. A Branch Admin has a Partner's powers but is not a partner,
+ * and the pill is the one place that difference should show — resolving them to
+ * the same role must not mean calling them the same thing.
+ */
+export function rolePillFor(ticketRole, subRole) {
+  if (
+    ticketRole === TICKET_ROLE.PARTNER &&
+    (subRole || '').trim() === SUB_ROLE.BRANCH_ADMIN
+  ) {
+    return 'Branch Admin';
+  }
+  return ROLE_LABEL[ticketRole];
+}
+
+/**
  * Header copy per role. The Partner strings are the mockup's own words.
  * Each one answers "what is this screen for, for me".
  */
@@ -83,17 +103,21 @@ export const ROLE_COPY = {
   },
   [TICKET_ROLE.CLUSTER_HEAD]: {
     title: 'Cluster Head Dashboard',
-    sub: 'Track tickets from assigned branches. Change status, filter issues, and monitor SLA.',
-    raiseTitle: 'Raise Ticket',
+    // PDF §6 — they approve; they no longer raise.
+    sub: 'Approve tickets from your branches, set their priority and resolution time, and track them to closure.',
+    raiseTitle: '',
   },
   [TICKET_ROLE.DEPT_HEAD]: {
     title: 'Department Queue',
-    sub: 'Assign approved tickets to your team, sign off their fixes, and send back anything that is not yours.',
-    raiseTitle: 'My Team',
+    // PDF §2 — one head, no team, no assigning, and they close it themselves.
+    sub: 'Work the tickets your department receives, resolve them, and close them.',
+    raiseTitle: '',
   },
   [TICKET_ROLE.DEPT_USER]: {
-    title: 'My Work',
-    sub: 'Everything assigned to you. Update progress as you go and mark it fixed when it is done.',
+    title: 'Ticketing',
+    // PDF §2 — nothing is assignable to them any more. They remain a
+    // recruitment role; this screen should not be reachable for them.
+    sub: 'Your login does not have a ticketing role.',
     raiseTitle: '',
   },
   [TICKET_ROLE.SUPER_ADMIN]: {
@@ -132,11 +156,8 @@ export function tabsForRole(ticketRole) {
         { key: 'approvals', label: 'Approvals' },
       ];
     case TICKET_ROLE.DEPT_HEAD:
-      // Requirement 9 — heads manage their own people.
-      return [
-        { key: 'dashboard', label: 'Department Queue' },
-        { key: 'team', label: 'My Team' },
-      ];
+      // PDF §2 — no team to manage, so no My Team tab. One queue.
+      return [{ key: 'dashboard', label: 'Department Queue' }];
     case TICKET_ROLE.SUPER_ADMIN:
       // Dashboard = the group-wide numbers and the branch/department
       // breakdowns; Tickets = the filtered working list those breakdowns drill
@@ -152,28 +173,23 @@ export function tabsForRole(ticketRole) {
   }
 }
 
-/** Can this role raise a ticket? Partners, cluster heads, and SuperAdmin. */
+/**
+ * Can this role raise a ticket? A Partner or Branch Admin (both resolve to
+ * PARTNER), and SuperAdmin.
+ *
+ * PDF §6 — a Cluster Head approves what the branch raises. Letting them raise
+ * too would put them on both sides of their own approval.
+ */
 export function canRaise(ticketRole) {
   return (
-    ticketRole === TICKET_ROLE.PARTNER ||
-    ticketRole === TICKET_ROLE.CLUSTER_HEAD ||
-    ticketRole === TICKET_ROLE.SUPER_ADMIN
+    ticketRole === TICKET_ROLE.PARTNER || ticketRole === TICKET_ROLE.SUPER_ADMIN
   );
 }
-
-/**
- * Does this role belong to the ticketing module ONLY, with no business in the
- * Performance side of the app?
- *
- * Department Heads and Users are onboarded purely for ticketing — they have no
- * branch dashboard, no leads, nothing in Performance. So they must not be handed
- * a door into it. Everyone else (Partner, Cluster Head, SuperAdmin) runs a
- * branch or the whole group, and Performance is theirs.
- */
 export function isTicketingOnly(ticketRole) {
-  return (
-    ticketRole === TICKET_ROLE.DEPT_HEAD || ticketRole === TICKET_ROLE.DEPT_USER
-  );
+  // Only a Department Head now. A Department User has no ticketing role at all
+  // (PDF §2) — they exist for recruitment, and sidebarNavForRole routes them
+  // there instead of into an empty queue.
+  return ticketRole === TICKET_ROLE.DEPT_HEAD;
 }
 
 /**
@@ -236,6 +252,15 @@ export function sidebarNavForRole(ticketRole, department) {
     screen: 'RecruitmentHome',
   };
 
+  // PDF §2 — a Department User has no ticketing role and runs no branch.
+  // Handled FIRST and by name: isTicketingOnly() now means Department Head
+  // alone, so without this they fall through to the else branch below and are
+  // handed Performance — the one door they must never be shown. Recruitment or
+  // nothing.
+  if (ticketRole === TICKET_ROLE.DEPT_USER) {
+    return canUseRecruitment(ticketRole, department) ? [recruitment] : [];
+  }
+
   const items = isTicketingOnly(ticketRole)
     ? [ticketing]
     : [performance, ticketing];
@@ -275,40 +300,33 @@ export function metricsForRole(ticketRole, d = {}) {
     case TICKET_ROLE.DEPT_HEAD:
       // Every tile maps to tickets this head can actually see and open. The
       // list scopes to their department in states past Cluster Head approval —
-      // it never shows the 'Open' status (those await CH approval, upstream of
-      // the department). So there is no "Open" tile here: it would count
-      // tickets the list can't display and tapping it would show nothing.
-      // "In my queue" is the whole active department load (d.open already counts
-      // only non-terminal tickets, all of which are visible to the head).
+      // it never shows 'Open' (those await CH approval, upstream of the
+      // department), so there is no Open tile: it would count tickets the list
+      // can't display and tapping it would show nothing.
+      //
+      // PDF §2 — there is no assigning and no signing off someone else's fix.
+      // The two action tiles are now the two ends of the head's own work: what
+      // has landed and not been started, and what is finished and waiting to be
+      // closed by them.
       return [
         {
           key: 'Approved',
           value: d.byStatus?.Approved || 0,
-          label: 'To assign',
+          label: 'To start',
         },
         {
-          key: 'Pending Approval',
-          value: d.byStatus?.['Pending Approval'] || 0,
-          label: 'Fixes to sign off',
+          key: 'Resolved',
+          value: d.byStatus?.Resolved || 0,
+          label: 'To close',
         },
         { key: 'InQueue', value: d.open, label: 'In my queue' },
         { key: 'Overdue', value: d.overdue, label: 'Overdue' },
       ];
     case TICKET_ROLE.DEPT_USER:
-      return [
-        {
-          key: 'Assigned',
-          value: d.byStatus?.Assigned || 0,
-          label: 'Not started',
-        },
-        {
-          key: 'In Progress',
-          value: d.byStatus?.['In Progress'] || 0,
-          label: 'In progress',
-        },
-        { key: 'Overdue', value: d.overdue, label: 'Overdue' },
-        { key: 'Closed', value: d.closedResolved, label: 'Done' },
-      ];
+      // PDF §2 — no ticketing role. Their scope is empty server-side, so tiles
+      // would be four confident zeros above a blank list. Better to show none
+      // and let ROLE_COPY explain why they're here.
+      return [];
     default:
       return common;
   }

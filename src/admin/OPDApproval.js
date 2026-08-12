@@ -43,6 +43,7 @@ const OPDApproval = () => {
   const [labCollection, setLabCollection] = useState([]);
   const [pharmacyCollection, setPharmacyCollection] = useState([]);
   const [testReport, setTestReport] = useState([]);
+  const [opdReport, setOpdReport] = useState([]);
   const [loading, setLoading] = useState(false);
   const [fromDate, setFromDate] = useState(getYesterday());
   const [count, setCount] = useState({
@@ -84,6 +85,7 @@ const OPDApproval = () => {
           setPharmacyCollection(res.pharmacyCollection);
           setTestReport(res.testReport);
           setOpdCollection(res.opdCollection);
+          setOpdReport(res.opdReport);
         })
         .finally(() => setLoading(false));
     } catch (error) {
@@ -198,13 +200,31 @@ const OPDApproval = () => {
             />
           </Table>
         </View> */}
-        {/* Test Details */}
+        {/* OPD Details */}
+        {opdReport.length > 0 && (
+          <View style={styles.tableContainer}>
+            <Table borderStyle={styles.border}>
+              <Row
+                data={['OPD', 'Amount']}
+                style={{ ...styles.head, backgroundColor: '#93f552' }}
+                textStyle={styles.headerText}
+              />
+              <Rows
+                data={opdReport}
+                style={styles.row}
+                textStyle={styles.text}
+              />
+            </Table>
+          </View>
+        )}
+
+        {/* Lab Details */}
         {testReport.length > 0 && (
           <View style={styles.tableContainer}>
             <Table borderStyle={styles.border}>
               <Row
-                data={['Test', 'Amount']}
-                style={styles.head}
+                data={['Lab', 'Amount']}
+                style={{ ...styles.head, backgroundColor: 'rgb(147, 245, 82)' }}
                 textStyle={styles.headerText}
               />
               <Rows

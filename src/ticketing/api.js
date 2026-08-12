@@ -223,14 +223,15 @@ export async function raiseTicket(actor, payload) {
  */
 const ACTION_PATH = {
   approve: 'approve',
-  reject: 'reject',
-  route: 'route',
-  assign: 'assign',
-  revert: 'revert',
+  reconsider: 'reconsider',
+  sendToBranch: 'send-to-branch',
+  fixedLocally: 'fixed-locally',
+  resolveLocal: 'resolve-local',
+  closeLocal: 'close-local',
   progress: 'progress',
-  fix: 'fix',
-  deptApprove: 'dept-approve',
-  sendBack: 'send-back',
+  reassign: 'reassign',
+  forward: 'forward',
+  resolve: 'resolve',
   close: 'close',
   reopen: 'reopen',
   comment: 'comment',
@@ -242,27 +243,6 @@ export async function actOnTicket(actor, id, action, payload = {}) {
   return call('POST', `/tickets/${encodeURIComponent(id)}/${path}`, {
     body: { ...actor, ...payload },
   });
-}
-
-// ─── Department roster (requirement 9) ───────────────────────────────────────
-export async function fetchDeptUsers(actor, department) {
-  return call('GET', '/users', { query: { ...actor, department } });
-}
-
-export async function fetchAssignees(actor, department) {
-  return call('GET', '/users/assignees', { query: { ...actor, department } });
-}
-
-export async function addDeptUser(actor, payload) {
-  return call('POST', '/users', { body: { ...actor, ...payload } });
-}
-
-export async function updateDeptUser(actor, id, payload) {
-  return call('PUT', `/users/${id}`, { body: { ...actor, ...payload } });
-}
-
-export async function deleteDeptUser(actor, id) {
-  return call('DELETE', `/users/${id}`, { query: actor });
 }
 
 // ─── Admin-panel onboarding ──────────────────────────────────────────────────

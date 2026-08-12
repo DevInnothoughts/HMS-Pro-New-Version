@@ -1280,6 +1280,13 @@ const AdminHome = ({ navigation }) => {
                 icon: 'medical-services',
               },
               {
+                label: 'LAB Collection',
+                route: 'LabCollectionReport',
+                params: { fromDate: from, toDate: to },
+                color: '#7B4FA8',
+                icon: 'biotech',
+              },
+              {
                 label: 'OPD + IPD Collection',
                 route: 'AdminOPDIPDPayment',
                 params: { fromDate: from, toDate: to },

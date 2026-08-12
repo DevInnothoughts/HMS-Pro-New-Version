@@ -18,11 +18,11 @@
 // see and the actions they may take; this screen draws them.
 //
 // Tabs per role
-//   Partner       Dashboard · Raise Ticket      (requirement: bottom tab, two options)
-//   Cluster Head  Dashboard · Raise Ticket      (requirement 7 — partner-less branches)
-//   Dept Head     Department Queue · My Team    (requirement 9)
-//   Dept User     Dashboard
-//   SuperAdmin    Dashboard + group rollups
+//   Partner       Dashboard · Raise Ticket
+//   Cluster Head  Dashboard · Tickets · Approvals   (PDF §6 — no raising)
+//   Dept Head     Department Queue                  (PDF §2 — no team)
+//   Dept User     no ticketing role                 (PDF §2)
+//   SuperAdmin    Dashboard · Tickets · Raise Ticket
 // ─────────────────────────────────────────────────────────────────────────────
 
 import { useFocusEffect } from '@react-navigation/native';
@@ -56,7 +56,6 @@ import {
   Toast,
   useToast,
 } from './components';
-import DeptUsers from './DeptUsers';
 import RaiseTicket from './RaiseTicket';
 import {
   canRaise,
@@ -64,7 +63,7 @@ import {
   metricsForRole,
   resolveTicketRole,
   ROLE_COPY,
-  ROLE_LABEL,
+  rolePillFor,
   tabsForRole,
   TICKET_ROLE,
 } from './roles';
@@ -76,15 +75,19 @@ const METRIC_FILTER = {
   Open: { status: 'Open' },
   Critical: { priority: 'Critical', status: 'Open' },
   Overdue: { status: 'Overdue' },
+  // An explicit status, which is what lets this tile reach past the new
+  // default that hides finished tickets (PDF §3).
   Closed: { status: 'Closed' },
+  SentBack: { status: 'Sent back' },
+  // statusExact, not status: "Branch Fixed" is an engine status, not one of the
+  // six display words, so the display-status filter would never match it.
+  BranchFixed: { statusExact: 'Branch Fixed' },
   Approval: { status: 'Open' },
-  Reverted: { status: 'Reverted' },
   Approved: { status: 'Approved' },
-  'Pending Approval': { status: 'Pending Approval' },
-  Assigned: { status: 'Assigned' },
   'In Progress': { status: 'In Progress' },
+  Resolved: { status: 'Resolved' },
   // A Dept Head's whole active queue — no status filter, so it's the same set
-  // the list shows by default (everything in their department past CH approval).
+  // the list shows by default (everything in their department past approval).
   InQueue: {},
 };
 
@@ -294,7 +297,7 @@ const TicketingHome = ({ navigation }) => {
     <SafeAreaView style={S.screen} edges={['top']}>
       <ScreenHeader
         onMenu={() => setMenuOpen(true)}
-        rolePill={ROLE_LABEL[ticketRole]}
+        rolePill={rolePillFor(ticketRole, subRole)}
         title={head.title}
         sub={head.sub}
         right={
@@ -397,8 +400,6 @@ const TicketingHome = ({ navigation }) => {
             </Empty>
           )}
         </ScrollView>
-      ) : tab === 'team' ? (
-        <DeptUsers actor={actor} department={dash.department} />
       ) : isBusy ? (
         <View
           style={{ flex: 1, alignItems: 'center', justifyContent: 'center' }}
@@ -512,6 +513,14 @@ const TicketingHome = ({ navigation }) => {
                         {ticketRole === TICKET_ROLE.CLUSTER_HEAD
                           ? 'Location-wise Open Tickets'
                           : 'Open tickets by branch'}
+                        {!filters.status && !filters.statusExact && (
+                          <Text
+                            style={[S.tiny, { marginTop: -4, marginBottom: 8 }]}
+                          >
+                            Closed and sent-back tickets are hidden. Filter
+                            Status to see them.
+                          </Text>
+                        )}
                       </ListTitle>
                       <BreakdownList
                         rows={(dash.byBranch || []).filter(r => r.open > 0)}
@@ -743,13 +752,15 @@ const TicketFooter = ({ ticket }) => {
 /** Short verbs for the card footer. The full labels live in TicketDetail. */
 const ACTION_WORD = {
   approve: 'approve',
-  reject: 'reject',
-  route: 're-route',
-  assign: 'assign',
-  revert: 'send back',
-  fix: 'mark fixed',
-  deptApprove: 'approve the fix',
-  sendBack: 'send back',
+  reconsider: 'send back',
+  sendToBranch: 'send to branch',
+  fixedLocally: 'mark fixed',
+  resolveLocal: 'resolve',
+  closeLocal: 'close',
+  progress: 'update progress',
+  reassign: 're-assign',
+  forward: 'forward',
+  resolve: 'resolve',
   close: 'close',
   reopen: 'reopen',
 };
@@ -757,15 +768,14 @@ const ACTION_WORD = {
 function hintFor(ticket) {
   const map = {
     Open: 'Waiting for Cluster Head approval',
-    Approved: 'With the department head to assign',
-    Reverted: 'Back with the Cluster Head — wrong department',
-    Assigned: `Assigned to ${ticket.assigneeName || 'the team'}`,
-    'In Progress': `${ticket.assigneeName || 'The team'} is working on it`,
+    'Sent Back': 'Sent back by the Cluster Head',
+    Approved: `With the ${ticket.department} head`,
+    'In Progress': `${ticket.department} is working on it`,
     'Waiting for Vendor': 'Blocked on a vendor',
-    'Pending Approval': 'Fixed — department head is signing off',
-    Resolved: 'Fixed and signed off, waiting to be closed',
-    Closed: `Closed by ${ticket.closedByName || 'the raiser'}`,
-    Rejected: 'Declined by the Cluster Head',
+    'With Branch': 'Being fixed at the branch',
+    'Branch Fixed': 'Fixed — Cluster Head reviewing',
+    Resolved: 'Resolved — waiting to be closed',
+    Closed: 'Closed',
     Reopened: 'Reopened — back with the department',
   };
   return map[ticket.status] || ticket.status;

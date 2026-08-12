@@ -78,7 +78,6 @@ export const F = {
 // ─── Priority + status colour maps ───────────────────────────────────────────
 export const PRIORITY_STYLE = {
   Critical: { bg: C.critBg, fg: C.red },
-  High: { bg: C.highBg, fg: C.orange },
   Medium: { bg: C.medBg, fg: C.blue },
   Low: { bg: C.lowBg, fg: C.green2 },
 };
@@ -86,22 +85,23 @@ export const PRIORITY_STYLE = {
 // Every status the workflow can be in, coloured by who is being waited on.
 // Red = stuck with someone, amber = in flight, green = done, grey = neutral.
 export const STATUS_STYLE = {
-  // The five a person sees. The detailed workflow states below are kept so the
-  // timeline, which names precise steps, still finds a colour.
-  Open: { bg: '#fff4e5', fg: '#b26a00' },
-  'In progress': { bg: '#e8f0fe', fg: '#1a56c4' },
-  Overdue: { bg: '#ffe8e8', fg: '#d94141' },
-  Resolved: { bg: '#e7f6ec', fg: '#1a7f40' },
-  Closed: { bg: '#eef1f0', fg: '#5b6a6f' },
+  // display words — what the list, filter bar and cards show
+  'In progress': { bg: C.medBg, fg: C.blue },
+  Overdue: { bg: C.overdueBg, fg: C.red },
+  'Sent back': { bg: C.highBg, fg: C.orange },
 
+  // engine statuses — what the timeline and detail screen name
   Open: { bg: C.highBg, fg: C.orange },
-  Rejected: { bg: C.critBg, fg: C.red },
+  // Amber, not red. Being asked to rethink a request is not a failure, and
+  // colouring it like one makes every Cluster Head reluctant to use it.
+  'Sent Back': { bg: C.highBg, fg: C.orange },
   Approved: { bg: C.medBg, fg: C.blue },
-  Reverted: { bg: C.critBg, fg: C.red },
-  Assigned: { bg: C.medBg, fg: C.blue },
   'In Progress': { bg: C.medBg, fg: C.blue },
   'Waiting for Vendor': { bg: C.highBg, fg: C.orange },
-  'Pending Approval': { bg: C.highBg, fg: C.orange },
+  // Blue: work in flight, same as In Progress. Amber: waiting on someone —
+  // here, the Cluster Head.
+  'With Branch': { bg: C.medBg, fg: C.blue },
+  'Branch Fixed': { bg: C.highBg, fg: C.orange },
   Resolved: { bg: C.lowBg, fg: C.green2 },
   Closed: { bg: C.badgeBg, fg: C.badgeText },
   Reopened: { bg: C.critBg, fg: C.red },
@@ -113,29 +113,27 @@ export const STATUS_STYLE = {
  */
 export const STATUS_HINT = {
   Open: 'Waiting for your Cluster Head to approve it',
-  Rejected: 'Your Cluster Head declined this',
-  Approved: 'With the department head, waiting to be assigned',
-  Reverted: 'Sent back to the Cluster Head — wrong department',
-  Assigned: 'Assigned, work not started yet',
-  'In Progress': 'Someone is working on it now',
+  'Sent Back': 'Your Cluster Head has sent this back to be reconsidered',
+  Approved: 'With the department head',
+  'In Progress': 'The department is working on it now',
   'Waiting for Vendor': 'Blocked on an outside vendor',
-  'Pending Approval': 'Fixed — waiting for the department head to sign off',
-  Resolved: 'Fixed and signed off. Close it if you agree.',
+  'With Branch': 'Your branch is fixing this one locally',
+  'Branch Fixed': 'Fixed at the branch — your Cluster Head is reviewing it',
+  Resolved: 'Fixed — the department head will close it',
   Closed: 'Closed',
   Reopened: 'Reopened — back with the department',
 };
 
-export const PRIORITIES = ['Critical', 'High', 'Medium', 'Low'];
+export const PRIORITIES = ['Critical', 'Medium', 'Low'];
 
 export const ALL_STATUSES = [
   'Open',
-  'Rejected',
+  'Sent Back',
   'Approved',
-  'Reverted',
-  'Assigned',
   'In Progress',
   'Waiting for Vendor',
-  'Pending Approval',
+  'With Branch',
+  'Branch Fixed',
   'Resolved',
   'Closed',
   'Reopened',

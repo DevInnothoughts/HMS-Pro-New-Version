@@ -324,9 +324,15 @@ export const Select = ({
 };
 
 // ─── Labelled field ──────────────────────────────────────────────────────────
-export const Field = ({ label, children }) => (
+// `req` marks the field as required. It is the ONLY signal a person gets before
+// submitting — the toasts in submitPrompt fire after the fact, and a form that
+// only tells you what was needed once you've tapped is a form that wastes a tap.
+export const Field = ({ label, children, req }) => (
   <View>
-    <Text style={S.label}>{label}</Text>
+    <Text style={S.label}>
+      {label}
+      {req ? <Text style={{ color: C.red }}> *</Text> : null}
+    </Text>
     {children}
   </View>
 );
@@ -374,8 +380,8 @@ export const FilterBar = ({
     },
     {
       key: 'priority',
-      label: 'Type',
-      any: 'Any type',
+      label: 'Priority',
+      any: 'Any priority',
       options: meta?.priorities || [],
     },
     {
@@ -654,7 +660,7 @@ export const TicketCard = ({ ticket, onPress, footer }) => (
             <Text style={{ fontFamily: F.medium, color: C.text }}>
               {ticket.raisedBy}
             </Text>
-            {ticket.raisedByRole === 'ClusterHead' ? ' (Cluster Head)' : ''}
+            {ticket.raisedByRole === 'SuperAdmin' ? ' (Management)' : ''}
           </Text>
         )}
       </View>
@@ -668,7 +674,6 @@ export const TicketCard = ({ ticket, onPress, footer }) => (
       <Badge tone={ticket.displayStatus || ticket.status}>
         {ticket.displayStatus || ticket.status}
       </Badge>
-      {!!ticket.overdue && <Badge tone="overdue">Overdue</Badge>}
     </View>
 
     {footer}
