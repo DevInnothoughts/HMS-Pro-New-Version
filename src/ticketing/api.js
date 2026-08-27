@@ -175,27 +175,34 @@ export async function getMyEmail() {
 }
 
 /**
- * The email of the Cluster Head who approves a given branch. Cluster Heads live
- * in Firestore (not the ticket roster), so this looks up the users collection
- * for a Cluster Head whose locations include this branch, and returns their
- * email. Passed to the backend at raise time so the approver can be notified —
- * the backend can't resolve this itself (it never touches Firestore).
+ * The Cluster Head who approves a given branch — email AND mobile.
  *
- * Returns '' if none is found; the backend then skips the approval email. If
- * your Firestore shape differs (e.g. the field isn't `locations` or the subRole
- * label differs), adjust the query here.
+ * Cluster Heads live in Firestore, not the ticket roster, so this is looked up
+ * here and passed to the backend at raise time; the backend can't resolve it
+ * itself. The mobile is what the approval-deadline reminder is sent to.
+ *
+ * Returns { email: '', mobile: '' } if none is found, and the backend simply
+ * skips whichever channel is missing. If your Firestore shape differs (the
+ * field is not `locationArray`, or the subRole label reads differently), this
+ * one function is the only place to adjust.
  */
-export async function getClusterHeadEmailForBranch(branch) {
-  if (!branch) return '';
+export async function getClusterHeadForBranch(branch) {
+  const none = { email: '', mobile: '' };
+  if (!branch) return none;
   try {
     const snap = await firestore()
       .collection('users')
       .where('subRole', '==', 'Cluster Head')
       .get();
-    let fallback = '';
+
+    let fallback = null;
     for (const doc of snap.docs) {
       const d = doc.data() || {};
-      if (!d.email) continue;
+      // The doc id IS the mobile — AddUserForm writes users/<mobile> — so a
+      // missing `mobile` field is not a missing number.
+      const who = { email: d.email || '', mobile: d.mobile || doc.id || '' };
+      if (!who.email && !who.mobile) continue;
+
       const locs = Array.isArray(d.locationArray)
         ? d.locationArray
         : Array.isArray(d.locations)
@@ -203,14 +210,19 @@ export async function getClusterHeadEmailForBranch(branch) {
         : d.location
         ? [d.location]
         : [];
-      if (locs.includes(branch)) return d.email; // the CH for this branch
-      if (!fallback) fallback = d.email; // any CH, if none matches exactly
+      if (locs.includes(branch)) return who; // the CH for this branch
+      if (!fallback) fallback = who; // any CH, if none matches exactly
     }
-    return fallback;
+    return fallback || none;
   } catch (e) {
-    console.log('ticketing: could not find cluster head email', e?.message);
-    return '';
+    console.log('ticketing: could not find cluster head', e?.message);
+    return none;
   }
+}
+
+/** Kept for callers that only want the address. */
+export async function getClusterHeadEmailForBranch(branch) {
+  return (await getClusterHeadForBranch(branch)).email;
 }
 
 export async function raiseTicket(actor, payload) {
@@ -235,6 +247,10 @@ const ACTION_PATH = {
   close: 'close',
   reopen: 'reopen',
   comment: 'comment',
+  assign: 'assign',
+  fix: 'fix',
+  deptApprove: 'dept-approve',
+  sendBack: 'send-back',
 };
 
 export async function actOnTicket(actor, id, action, payload = {}) {
@@ -302,6 +318,35 @@ export async function getAllBranches() {
     console.log('ticketing: could not load HHCLocations', e?.message);
     return [];
   }
+}
+
+// ─── The head's own team (My Team) ───────────────────────────────────────────
+// Unlike the /roster calls above, these DO take an actor: the server reads the
+// department off it, so a head can only ever reach their own team.
+
+export async function listTeamUsers(actor) {
+  return call('GET', '/users', { query: actor });
+}
+
+/** The assign-to picker. Includes the head themselves. */
+export async function listAssignees(actor) {
+  return call('GET', '/assignees', { query: actor });
+}
+
+export async function addTeamUser(actor, { mobile, name, email }) {
+  return call('POST', '/users', { body: { ...actor, mobile, name, email } });
+}
+
+export async function updateTeamUser(actor, mobile, patch) {
+  return call('PUT', `/users/${encodeURIComponent(mobile)}`, {
+    body: { ...actor, ...patch },
+  });
+}
+
+export async function deleteTeamUser(actor, mobile) {
+  return call('DELETE', `/users/${encodeURIComponent(mobile)}`, {
+    query: { ...actor, mobile },
+  });
 }
 
 export { BASE as TICKETING_BASE_URL };

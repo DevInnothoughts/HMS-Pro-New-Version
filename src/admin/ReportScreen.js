@@ -104,10 +104,17 @@ const LABELS = {
   item_date: 'Date',
   discount: 'Discount',
   status: 'Status',
+  patient_location: 'Interbranch Location',
   insurance_company: 'Insurance',
   payable_amt: 'Payable',
   totalamt: 'Total',
   totaldue: 'Due',
+  cash_collected: 'Cash Coll.',
+  card_collected: 'Card Coll.',
+  cheque_collected: 'Cheque Coll.',
+  online_collected: 'Online Coll.',
+  pdc_cheque_collected: 'PDC Cheque Coll.',
+  total_collected: 'Total Coll.',
   cashamt: 'Cash',
   cardamt: 'Card',
   chequeamt: 'Cheque',
@@ -128,6 +135,22 @@ const LABELS = {
 
 const labelFor = key =>
   LABELS[key] || key.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
+
+// Columns rendered only when at least one row actually carries a value.
+// patient_location is NULL on most invoices — an all-"—" column just eats
+// horizontal space in the preview and adds a dead column to the workbook.
+const OPTIONAL_KEYS = new Set(['patient_location']);
+
+const hasValue = v => v !== null && v !== undefined && String(v).trim() !== '';
+
+// Keys to render for a row set: every key from the first row, minus any
+// OPTIONAL_KEYS that are empty across the entire set.
+const visibleColumns = rows => {
+  if (!rows.length) return [];
+  return Object.keys(rows[0]).filter(
+    k => !OPTIONAL_KEYS.has(k) || rows.some(r => hasValue(r[k])),
+  );
+};
 
 // Friendly titles for object-shaped responses (e.g. IPD Sheet2)
 const SECTION_TITLES = {
@@ -176,6 +199,12 @@ const MONEY_KEYS = new Set([
   'TDS',
   'settled_amt',
   'total',
+  'cash_collected',
+  'card_collected',
+  'cheque_collected',
+  'online_collected',
+  'pdc_cheque_collected',
+  'total_collected',
 ]);
 
 const fmtMoney = n => `₹${Math.round(Number(n) || 0).toLocaleString('en-IN')}`;
@@ -225,10 +254,7 @@ const TableRow = React.memo(({ row, columns, alt }) => (
 
 // ── Preview Table (virtualized, horizontal + vertical scroll) ──
 const PreviewTable = ({ rows }) => {
-  const columns = useMemo(
-    () => (rows.length ? Object.keys(rows[0]) : []),
-    [rows],
-  );
+  const columns = useMemo(() => visibleColumns(rows), [rows]);
   const visibleRows = useMemo(() => rows.slice(0, PREVIEW_ROW_LIMIT), [rows]);
 
   const renderItem = useCallback(
@@ -690,10 +716,11 @@ const ReportScreen = ({ navigation }) => {
 
       const wb = XLSX.utils.book_new();
       populated.forEach(section => {
+        const cols = visibleColumns(section.rows);
         // Map raw keys → friendly headers for the spreadsheet
         const friendly = section.rows.map(row => {
           const out = {};
-          Object.keys(row).forEach(k => {
+          cols.forEach(k => {
             out[labelFor(k)] = row[k];
           });
           return out;

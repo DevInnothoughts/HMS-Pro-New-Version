@@ -69,6 +69,8 @@ import TicketDetail from './src/ticketing/TicketDetail';
 import RecruitmentHome from './src/recruitment/RecruitmentHome';
 import RequestDetail from './src/recruitment/RequestDetail';
 import LabCollectionReport from './src/admin/LabCollectionReport';
+import PartnerLeads from './src/admin/PartnerLeads';
+import ConvincingComparisonScreen from './src/admin/ConvincingComparisonScreen';
 
 const Stack = createNativeStackNavigator();
 
@@ -565,6 +567,16 @@ function App(): React.JSX.Element {
               <Stack.Screen
                 name="LabCollectionReport"
                 component={LabCollectionReport}
+                options={{ headerShown: false }}
+              />
+              <Stack.Screen
+                name="PartnerLeads"
+                component={PartnerLeads}
+                options={{ headerShown: false }}
+              />
+              <Stack.Screen
+                name="ConvincingComparisonScreen"
+                component={ConvincingComparisonScreen}
                 options={{ headerShown: false }}
               />
             </Stack.Navigator>

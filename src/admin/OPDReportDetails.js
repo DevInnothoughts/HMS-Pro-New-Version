@@ -341,7 +341,7 @@ const OPDReportDetails = ({ navigation }) => {
               }}
               onPress={() => handleFilter('Pending')}
             >
-              <Text style={styles.subHeader}>Recept Pending</Text>
+              <Text style={styles.subHeader}>Receipt Pending</Text>
               <Text style={styles.subHeader}>{totalPending}</Text>
             </Card>
 

@@ -19,6 +19,7 @@ import {
   View,
 } from 'react-native';
 import { C, F, PRIORITY_STYLE, S, STATUS_STYLE } from '../theme';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 // ─── ScreenHeader ────────────────────────────────────────────────────────────
 // The mockup's <header>: brand line, role pill, title, sub.
@@ -698,9 +699,15 @@ export const Toast = ({ message }) =>
 // ─── Bottom nav ──────────────────────────────────────────────────────────────
 // CSS: nav — one column per tab.
 export const BottomNav = ({ tabs, active, onChange }) => {
+  // Before the early return — a hook cannot sit behind a conditional.
+  const insets = useSafeAreaInsets();
   if (!tabs || tabs.length < 2) return null;
   return (
-    <View style={S.nav}>
+    // The bar's background still reaches the screen edge; the padding lifts the
+    // BUTTONS off it. On a device with a home indicator that means clearing the
+    // indicator; on one without, a flat 14 so the row is not jammed into the
+    // bottom bezel.
+    <View style={[S.nav, { paddingBottom: Math.max(insets.bottom, 14) + 4 }]}>
       {tabs.map(t => {
         const on = t.key === active;
         return (

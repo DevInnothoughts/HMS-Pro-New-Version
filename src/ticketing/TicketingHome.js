@@ -68,6 +68,7 @@ import {
   TICKET_ROLE,
 } from './roles';
 import { C, F, S } from './theme';
+import DeptUsers from './DeptUsers';
 
 // A metric tile's key maps onto a list filter, so tapping a number shows you
 // the tickets behind it. Straight from the mockup: onclick="setFilter('Open')".
@@ -82,13 +83,26 @@ const METRIC_FILTER = {
   // statusExact, not status: "Branch Fixed" is an engine status, not one of the
   // six display words, so the display-status filter would never match it.
   BranchFixed: { statusExact: 'Branch Fixed' },
-  Approval: { status: 'Open' },
+  // statusExact, not status: this is the approval queue — tickets at the
+  // literal `Open` state, waiting on this Cluster Head. Plain `status: 'Open'`
+  // now means "not closed" and would hand them the entire board.
+  Approval: { statusExact: 'Open' },
   Approved: { status: 'Approved' },
   'In Progress': { status: 'In Progress' },
   Resolved: { status: 'Resolved' },
+  Assigned: { statusExact: 'Assigned' },
+  // statusExact: "Pending Approval" is an engine status, not one of the six
+  // display words, so the display-status filter would never match it — same
+  // reason BranchFixed above needs it.
+  PendingApproval: { statusExact: 'Pending Approval' },
   // A Dept Head's whole active queue — no status filter, so it's the same set
   // the list shows by default (everything in their department past approval).
   InQueue: {},
+  OnHold: { statusExact: 'On Hold' },
+  // statusExact, NOT status. `status: 'In Progress'` resolves to the display
+  // GROUP, which now contains Assigned, On Hold and Pending Approval as well —
+  // so this tile would say 4 and open a list of 11. Same trap as section 6.
+  InProgress: { statusExact: 'In Progress' },
 };
 
 const TicketingHome = ({ navigation }) => {
@@ -258,7 +272,6 @@ const TicketingHome = ({ navigation }) => {
   // header instead of leaving people wondering why the list looks short.
   const activeFilterLabel = useMemo(() => {
     const parts = [];
-    if (filters.mine) parts.push('Raised by me');
     if (filters.status) parts.push(filters.status);
     if (filters.priority) parts.push(filters.priority);
     if (filters.department) parts.push(filters.department);
@@ -335,6 +348,10 @@ const TicketingHome = ({ navigation }) => {
           ) : null
         }
       />
+
+      {tab === 'team' && (
+        <DeptUsers actor={actor} department={dash.department} toast={toast} />
+      )}
 
       {tab === 'raise' ? (
         <RaiseTicket
@@ -509,18 +526,18 @@ const TicketingHome = ({ navigation }) => {
                   {(ticketRole === TICKET_ROLE.CLUSTER_HEAD ||
                     ticketRole === TICKET_ROLE.SUPER_ADMIN) && (
                     <>
-                      <ListTitle hint="Tap row to filter">
+                      <ListTitle hint="">
                         {ticketRole === TICKET_ROLE.CLUSTER_HEAD
                           ? 'Location-wise Open Tickets'
                           : 'Open tickets by branch'}
-                        {!filters.status && !filters.statusExact && (
+                        {/* {!filters.status && !filters.statusExact && (
                           <Text
                             style={[S.tiny, { marginTop: -4, marginBottom: 8 }]}
                           >
-                            Closed and sent-back tickets are hidden. Filter
-                            Status to see them.
+                             Closed tickets are hidden. Filter Status to see
+                            them.
                           </Text>
-                        )}
+                        )} */}
                       </ListTitle>
                       <BreakdownList
                         rows={(dash.byBranch || []).filter(r => r.open > 0)}
@@ -531,9 +548,7 @@ const TicketingHome = ({ navigation }) => {
                         emptyText="No open tickets at any of your branches."
                       />
 
-                      <ListTitle hint="Tap row to filter">
-                        Department Pressure
-                      </ListTitle>
+                      <ListTitle hint="">Department Pressure</ListTitle>
                       <BreakdownList
                         rows={(dash.byDepartment || []).filter(r => r.open > 0)}
                         nameKey="department"
@@ -594,10 +609,6 @@ const TicketingHome = ({ navigation }) => {
                     onChange={applyFilters}
                     meta={meta}
                     branches={locationArray || []}
-                    showMine={
-                      ticketRole === TICKET_ROLE.PARTNER ||
-                      ticketRole === TICKET_ROLE.CLUSTER_HEAD
-                    }
                   />
 
                   {tickets.length ? (
@@ -722,7 +733,9 @@ function headerFor(tab, ticketRole, copy, department) {
       } who can be assigned tickets. Adding someone here also creates their login.`,
     };
   }
-  return { title: copy.title, sub: copy.sub };
+  // No sub on the dashboard. The tiles say what this screen is; a sentence
+  // above them restating it just pushes the numbers further down the screen.
+  return { title: copy.title, sub: '' };
 }
 
 /**
@@ -758,11 +771,15 @@ const ACTION_WORD = {
   resolveLocal: 'resolve',
   closeLocal: 'close',
   progress: 'update progress',
-  reassign: 're-assign',
+  reassign: 'move to another department',
   forward: 'forward',
   resolve: 'resolve',
   close: 'close',
   reopen: 'reopen',
+  assign: 'assign it',
+  fix: 'mark it fixed',
+  deptApprove: 'approve the fix',
+  sendBack: 'send it back',
 };
 
 function hintFor(ticket) {
@@ -770,11 +787,17 @@ function hintFor(ticket) {
     Open: 'Waiting for Cluster Head approval',
     'Sent Back': 'Sent back by the Cluster Head',
     Approved: `With the ${ticket.department} head`,
-    'In Progress': `${ticket.department} is working on it`,
-    'Waiting for Vendor': 'Blocked on a vendor',
+    Assigned: ticket.assigneeName
+      ? `With ${ticket.assigneeName}`
+      : `Assigned in ${ticket.department}`,
+    'Pending Approval': `Fixed — the ${ticket.department} head is reviewing it`,
+    'In Progress': ticket.assigneeName
+      ? `${ticket.assigneeName} is working on it`
+      : `${ticket.department} is working on it`,
+    'On Hold': 'On hold with the department',
     'With Branch': 'Being fixed at the branch',
     'Branch Fixed': 'Fixed — Cluster Head reviewing',
-    Resolved: 'Resolved — waiting to be closed',
+    Resolved: 'Resolved — waiting on the branch to close',
     Closed: 'Closed',
     Reopened: 'Reopened — back with the department',
   };

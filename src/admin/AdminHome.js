@@ -402,6 +402,11 @@ const AdminHome = ({ navigation }) => {
       label: 'Bot Leads',
       routeName: 'BotLeads',
     },
+    // {
+    //   image: require('../../assets/bot.png'),
+    //   label: 'Hexa & Sulekha Leads',
+    //   routeName: 'PartnerLeads',
+    // },
     {
       image: require('../../assets/referral.png'),
       label: 'Reference Report',

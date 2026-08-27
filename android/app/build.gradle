@@ -84,8 +84,8 @@ android {
         applicationId "com.healinghandsclinic.hms"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
-        versionCode 54
-        versionName "1.13.41"
+        versionCode 57
+        versionName "1.13.44"
     }
     signingConfigs {
           release {

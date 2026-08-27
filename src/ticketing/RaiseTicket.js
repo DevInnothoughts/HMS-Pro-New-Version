@@ -40,7 +40,7 @@ import { useSelector } from 'react-redux';
 
 import {
   getAllBranches,
-  getClusterHeadEmailForBranch,
+  getClusterHeadForBranch,
   getMyEmail,
   raiseTicket,
 } from './api';
@@ -86,7 +86,15 @@ const RaiseTicket = ({ meta, actor, ticketRole, onDone }) => {
     );
   }, [isSuperAdmin, allBranches, location, locationArray]);
 
-  const departments = meta?.departments || [];
+  // N/A goes LAST, and the default below stays on the first real department.
+  // Defaulting to N/A would make it the path of least resistance and land the
+  // whole triage burden on the Cluster Head — the opposite of what an escape
+  // hatch is for.
+  const NA = meta?.unassignedDepartment || 'N/A';
+  const departments = useMemo(() => {
+    const real = meta?.departments || [];
+    return real.length ? [...real, NA] : [];
+  }, [meta, NA]);
   const priorities = meta?.priorities || ['Critical', 'Medium', 'Low'];
 
   const [center, setCenter] = useState(location || centers[0] || '');
@@ -109,10 +117,16 @@ const RaiseTicket = ({ meta, actor, ticketRole, onDone }) => {
   // When it's chosen, the description carries the real detail (already required,
   // and the placeholder prompts for it), so a ticket is never just "Other".
   const OTHER = 'Other';
+  const isUnrouted = department === NA;
   const issueTypes = useMemo(() => {
+    if (!department) return [];
+    // With no department there is no issue list to draw from, so N/A is always
+    // Other and the description does the work. The server forces this too — see
+    // createTicket — so the locked field and the stored value cannot disagree.
+    if (isUnrouted) return [OTHER];
     const forDept = meta?.issueMap?.[department] || [];
-    return department ? [...forDept, OTHER] : [];
-  }, [meta, department]);
+    return [...forDept, OTHER];
+  }, [meta, department, isUnrouted]);
 
   const isOther = issueType === OTHER;
 
@@ -155,9 +169,9 @@ const RaiseTicket = ({ meta, actor, ticketRole, onDone }) => {
       // this branch. The backend stores them on the ticket and notifies at the
       // right steps. Both are best-effort — an empty string just means that
       // person won't be emailed.
-      const [raisedByEmail, clusterHeadEmail] = await Promise.all([
+      const [raisedByEmail, clusterHead] = await Promise.all([
         getMyEmail(),
-        getClusterHeadEmailForBranch(center),
+        getClusterHeadForBranch(center),
       ]);
       const res = await raiseTicket(actor, {
         center,
@@ -166,7 +180,10 @@ const RaiseTicket = ({ meta, actor, ticketRole, onDone }) => {
         issueType,
         description: description.trim(),
         raisedByEmail,
-        clusterHeadEmail,
+        clusterHeadEmail: clusterHead.email,
+        // Where the approval-deadline reminder goes if this sits unapproved
+        // past 3 working hours.
+        clusterHeadMobile: clusterHead.mobile,
         attachment: photo
           ? {
               fileName: photo.fileName,
@@ -261,6 +278,25 @@ const RaiseTicket = ({ meta, actor, ticketRole, onDone }) => {
               </View>
             )}
 
+            {isUnrouted && (
+              <View
+                style={{
+                  borderWidth: 1,
+                  borderColor: C.line,
+                  backgroundColor: C.navActiveBg,
+                  borderRadius: 14,
+                  padding: 12,
+                }}
+              >
+                <Text style={S.tiny}>
+                  Your Cluster Head will decide which department this goes to
+                  before it is approved. Describe the issue as clearly as you
+                  can below — that description is all they have to route it
+                  with.
+                </Text>
+              </View>
+            )}
+
             <Field label="Issue Type" req>
               <Select
                 label="Issue Type"
@@ -272,7 +308,8 @@ const RaiseTicket = ({ meta, actor, ticketRole, onDone }) => {
                 value={issueType}
                 options={issueTypes}
                 onChange={setIssueType}
-                disabled={!issueTypes.length}
+                // Locked on N/A: there is nothing to choose between.
+                disabled={!issueTypes.length || isUnrouted}
               />
             </Field>
 

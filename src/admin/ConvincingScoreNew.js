@@ -3,6 +3,7 @@
 /* eslint-disable react/react-in-jsx-scope */
 import { useEffect, useState } from 'react';
 import {
+  Alert,
   Image,
   KeyboardAvoidingView,
   LayoutAnimation,
@@ -13,6 +14,7 @@ import {
   UIManager,
   View,
 } from 'react-native';
+import DatePicker from 'react-native-date-picker';
 import {
   Text,
   Button,
@@ -24,6 +26,16 @@ import { useSelector } from 'react-redux';
 import ModalDropdown from 'react-native-modal-dropdown';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { InsightsModal, SpecialityDetailTable } from './ConvincingInsights';
+import {
+  MAX_RANGE_DAYS,
+  formatDateIST,
+  prettyDate,
+  rangeLabel,
+  daysBetween,
+  startOfToday,
+  addDays,
+  generateMonthsList,
+} from './convincingPeriodUtils';
 
 if (
   Platform.OS === 'android' &&
@@ -48,17 +60,6 @@ const C = {
   track: '#EDF1F6',
   chip: '#EEF2F7',
   neutralBar: '#C9D2DE',
-};
-
-/* ── Helpers ─────────────────────────────────────────────────────────────── */
-const formatDateIST = date => {
-  const now = new Date(date);
-  const istOffsetMs = 5.5 * 60 * 60 * 1000;
-  const istTime = new Date(now.getTime() + istOffsetMs);
-  const year = istTime.getUTCFullYear();
-  const month = String(istTime.getUTCMonth() + 1).padStart(2, '0');
-  const day = String(istTime.getUTCDate()).padStart(2, '0');
-  return `${year}-${month}-${day}`;
 };
 
 const nf = n => (Number(n) || 0).toLocaleString('en-IN');
@@ -198,7 +199,9 @@ const DoctorCard = ({
   const medication = item.diagnosisCounts?.Medication || 0;
   const done = item.invoiceCount || 0;
   const totalDone = item.totalSurgeriesDone || 0;
-  const sameMonth = item.thisMonthDiagnosedAndSurgeryPerformed || 0;
+  // API field name kept as-is; it is really "diagnosed AND operated within the
+  // selected period", which is only "the same month" when a month is selected.
+  const inPeriod = item.thisMonthDiagnosedAndSurgeryPerformed || 0;
 
   const convincing = pctNum(done, advised);
   const sColor = scoreColor(convincing);
@@ -290,12 +293,12 @@ const DoctorCard = ({
             sub={`${done} of ${diagnosed} patients seen`}
           />
           <StatLine
-            label="Same-month Surgeries"
-            value={nf(sameMonth)}
+            label="Surgeries in Period"
+            value={nf(inPeriod)}
             sub={`${fmtPct(
-              sameMonth,
+              inPeriod,
               advised,
-            )} of advised, done the same month`}
+            )} of advised, done within the period`}
           />
 
           <Text style={[styles.sectionLabel, { marginTop: 16 }]}>
@@ -394,27 +397,56 @@ const ConvincingScoreV1 = ({ navigation }) => {
   };
 
   const [monthsList] = useState(generateMonthsList());
-  const [month, setMonth] = useState(monthsList[0].label);
   const [selectedMonth, setSelectedMonth] = useState(monthsList[0]);
+
+  // label shown on the period chip — now a month name OR a custom range
+  const [periodLabel, setPeriodLabel] = useState(monthsList[0].label);
+
+  // 'month' | 'custom'
+  const [filterMode, setFilterMode] = useState('month');
+
+  // native date-picker visibility
+  const [openFrom, setOpenFrom] = useState(false);
+  const [openTo, setOpenTo] = useState(false);
+
+  const hideModal1 = () => setVisible1(false);
+
+  // Reset the draft to whatever is currently applied whenever the modal opens
+  const openFilter = () => {
+    setVisible1(true);
+  };
 
   const handleMonthChange = index => {
     const selected = monthsList[index];
     setSelectedMonth(selected);
-    const from = new Date(
-      selected.value.getFullYear(),
-      selected.value.getMonth(),
-      1,
+    setFromDate(
+      new Date(selected.value.getFullYear(), selected.value.getMonth(), 1),
     );
-    const to = new Date(
-      selected.value.getFullYear(),
-      selected.value.getMonth() + 1,
-      0,
+    setToDate(
+      new Date(selected.value.getFullYear(), selected.value.getMonth() + 1, 0),
     );
-    setFromDate(from);
-    setToDate(to);
   };
 
-  const hideModal1 = () => setVisible1(false);
+  // Quick presets inside Custom mode
+  const applyPreset = key => {
+    const today = startOfToday();
+    if (key === '7d') {
+      setFromDate(addDays(today, -6));
+      setToDate(today);
+    } else if (key === '30d') {
+      setFromDate(addDays(today, -29));
+      setToDate(today);
+    } else if (key === '90d') {
+      setFromDate(addDays(today, -89));
+      setToDate(today);
+    } else if (key === 'fy') {
+      // Indian FY: Apr 1 → today
+      const y =
+        today.getMonth() >= 3 ? today.getFullYear() : today.getFullYear() - 1;
+      setFromDate(new Date(y, 3, 1));
+      setToDate(today);
+    }
+  };
 
   useEffect(() => {
     const now = new Date();
@@ -436,38 +468,83 @@ const ConvincingScoreV1 = ({ navigation }) => {
     };
     setLoading(true);
     setInsights(null);
+
     fetch(
-      `${BACKEND_URL}/ConvincingScore/v3?location=${loc}&from=${from}&to=${to}`,
+      `${BACKEND_URL}/ConvincingScore/v3?location=${encodeURIComponent(
+        loc,
+      )}&from=${from}&to=${to}`,
       requestOptions,
     )
-      .then(r => r.json())
+      .then(async r => {
+        const body = await r.json();
+        if (!r.ok)
+          throw new Error(body?.error || `Request failed (${r.status})`);
+        return body;
+      })
       .then(res => {
         setMainDoctorPerformance(res.consultantDoctors || []);
         setAsstDoctorPerformance(res.assistantDoctors || []);
         if (res.branchTotal) setBranchTotal(res.branchTotal);
         setExpandedId(null);
       })
-      .catch(err => console.log('convincing score error:', err))
+      .catch(err => {
+        console.log('convincing score error:', err);
+        setMainDoctorPerformance([]);
+        setAsstDoctorPerformance([]);
+        Alert.alert('Could not load data', err.message);
+      })
       .finally(() => setLoading(false));
 
-    // drill-down insights (gender / doctor-wise / disease-wise + sub-type metrics)
     fetch(
-      `${BACKEND_URL}/convincingInsights?location=${loc}&from=${from}&to=${to}`,
+      `${BACKEND_URL}/convincingInsights?location=${encodeURIComponent(
+        loc,
+      )}&from=${from}&to=${to}`,
       requestOptions,
     )
-      .then(r => r.json())
+      .then(r => (r.ok ? r.json() : null))
       .then(setInsights)
       .catch(err => console.log('insights error:', err));
   };
 
-  const applyMonth = () => {
-    setMonth(selectedMonth.label);
+  const applyFilter = () => {
+    if (filterMode === 'month') {
+      setPeriodLabel(selectedMonth.label);
+      hideModal1();
+      fetchConvincingScore(
+        location,
+        formatDateIST(fromDate),
+        formatDateIST(toDate),
+      );
+      return;
+    }
+
+    // ── Custom range validation ──────────────────────────────────────────
+    const f = formatDateIST(fromDate);
+    const t = formatDateIST(toDate);
+
+    if (f > t) {
+      Alert.alert(
+        'Invalid range',
+        '“From” date cannot be after the “To” date.',
+      );
+      return;
+    }
+    if (t > formatDateIST(new Date())) {
+      Alert.alert('Invalid range', '“To” date cannot be in the future.');
+      return;
+    }
+    const span = daysBetween(fromDate, toDate);
+    if (span > MAX_RANGE_DAYS) {
+      Alert.alert(
+        'Range too large',
+        `Please select ${MAX_RANGE_DAYS} days or fewer. You selected ${span} days.`,
+      );
+      return;
+    }
+
+    setPeriodLabel(rangeLabel(fromDate, toDate));
     hideModal1();
-    fetchConvincingScore(
-      location,
-      formatDateIST(fromDate),
-      formatDateIST(toDate),
-    );
+    fetchConvincingScore(location, f, t);
   };
 
   const toggleExpand = id => {
@@ -488,7 +565,7 @@ const ConvincingScoreV1 = ({ navigation }) => {
 
   return (
     <SafeAreaView style={styles.safe} edges={['top', 'bottom']}>
-      {/* Header */}
+      {/* Fixed header — stays put */}
       <View style={styles.header}>
         <TouchableOpacity
           onPress={() => navigation.goBack()}
@@ -501,7 +578,7 @@ const ConvincingScoreV1 = ({ navigation }) => {
         </TouchableOpacity>
         <Text style={styles.headerTitle}>Convincing Score</Text>
         <TouchableOpacity
-          onPress={() => setVisible1(true)}
+          onPress={openFilter}
           hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
         >
           <Image
@@ -511,142 +588,243 @@ const ConvincingScoreV1 = ({ navigation }) => {
         </TouchableOpacity>
       </View>
 
-      {/* Period chip */}
-      <TouchableOpacity
-        style={styles.periodChip}
-        onPress={() => setVisible1(true)}
-        activeOpacity={0.8}
-      >
-        <Text style={styles.periodText}>{month}</Text>
-        <Text style={styles.periodEdit}>Change</Text>
-      </TouchableOpacity>
-
-      {/* Branch summary — tap any tile for the breakdown */}
-      <View style={styles.summaryCard}>
-        <StatTile
-          label="New Appts"
-          value={nf(branchTotal.newAppointmentCount)}
-          onPress={() =>
-            insights && setMetricModal({ key: 'newAppts', label: 'New Appts' })
-          }
-        />
-        <View style={styles.tileDiv} />
-        <StatTile
-          label="Diagnoses"
-          value={nf(branchTotal.totalDiagnosisCount)}
-          onPress={() =>
-            insights && setMetricModal({ key: 'diagnoses', label: 'Diagnoses' })
-          }
-        />
-        <View style={styles.tileDiv} />
-        <StatTile
-          label="Surgery Adv."
-          value={nf(branchTotal.totalSurgery)}
-          onPress={() =>
-            insights &&
-            setMetricModal({ key: 'surgeryAdvised', label: 'Surgery Adv.' })
-          }
-        />
-        <View style={styles.tileDiv} />
-        <StatTile
-          label="Surgeries Performed"
-          value={nf(surgeriesPerformed)}
-          onPress={() =>
-            insights &&
-            setMetricModal({
-              key: 'surgeriesPerformed',
-              label: 'Surgeries Performed',
-            })
-          }
-        />
-      </View>
-
-      {/* Tabs */}
-      <View style={styles.tabs}>
-        <Tab
-          label="Surgeons"
-          count={mainDoctorPerformance.length}
-          active={tab === 'surgeons'}
-          color={C.surgeon}
-          onPress={() => switchTab('surgeons')}
-        />
-        <Tab
-          label="Assistant Doctors"
-          count={asstDoctorPerformance.length}
-          active={tab === 'assistants'}
-          color={C.assistant}
-          onPress={() => switchTab('assistants')}
-        />
-      </View>
-
-      {/* Legend */}
-      <Text style={styles.legendLine}>
-        Convincing Score = surgeries done ÷ surgeries advised
-      </Text>
-
-      {/* List */}
+      {/* ── Single page scroll ─────────────────────────────────────────── */}
       <ScrollView
-        style={{ flex: 1 }}
-        contentContainerStyle={styles.listContent}
+        style={styles.page}
+        contentContainerStyle={styles.pageContent}
         showsVerticalScrollIndicator={false}
+        keyboardShouldPersistTaps="handled"
+        stickyHeaderIndices={[2]}
       >
-        {list && list.length > 0 ? (
-          list.map(item => {
-            const key =
-              item.doctorId != null ? String(item.doctorId) : item.doctorName;
-            return (
-              <DoctorCard
-                key={key}
-                item={item}
-                accent={accent}
-                roleLabel={tab === 'surgeons' ? 'Surgeon' : 'Assistant'}
-                expanded={expandedId === key}
-                onToggle={() => toggleExpand(key)}
-                detail={
-                  (
-                    (tab === 'surgeons'
-                      ? insights?.consultantDoctors
-                      : insights?.assistantDoctors) || []
-                  ).find(d => String(d.doctorId) === String(item.doctorId))
-                    ?.specialities || []
-                }
-              />
-            );
-          })
-        ) : !loading ? (
-          <View style={styles.emptyWrap}>
-            <Text style={styles.emptyText}>No data available</Text>
-            <Text style={styles.emptySub}>
-              Try a different month from the filter above.
-            </Text>
+        {/* 0 — Period chip + Comparison entry */}
+        <View style={styles.actionRow}>
+          <TouchableOpacity
+            style={styles.periodChip}
+            onPress={openFilter}
+            activeOpacity={0.8}
+          >
+            <Text style={styles.periodText}>{periodLabel}</Text>
+            <Text style={styles.periodEdit}>Change</Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            style={styles.compareBtn}
+            activeOpacity={0.85}
+            onPress={() =>
+              navigation.navigate('ConvincingComparisonScreen', {
+                location,
+              })
+            }
+          >
+            <Text style={styles.compareBtnText}>Comparison</Text>
+            <Text style={styles.compareBtnChev}>›</Text>
+          </TouchableOpacity>
+        </View>
+
+        {/* 1 — Branch summary tiles */}
+        <View style={styles.summaryCard}>
+          <StatTile
+            label="New Appts"
+            value={nf(branchTotal.newAppointmentCount)}
+            onPress={() =>
+              insights &&
+              setMetricModal({ key: 'newAppts', label: 'New Appts' })
+            }
+          />
+          <View style={styles.tileDiv} />
+          <StatTile
+            label="Diagnoses"
+            value={nf(branchTotal.totalDiagnosisCount)}
+            onPress={() =>
+              insights &&
+              setMetricModal({ key: 'diagnoses', label: 'Diagnoses' })
+            }
+          />
+          <View style={styles.tileDiv} />
+          <StatTile
+            label="Surgery Adv."
+            value={nf(branchTotal.totalSurgery)}
+            onPress={() =>
+              insights &&
+              setMetricModal({ key: 'surgeryAdvised', label: 'Surgery Adv.' })
+            }
+          />
+          <View style={styles.tileDiv} />
+          <StatTile
+            label="Surgeries Performed"
+            value={nf(surgeriesPerformed)}
+            onPress={() =>
+              insights &&
+              setMetricModal({
+                key: 'surgeriesPerformed',
+                label: 'Surgeries Performed',
+              })
+            }
+          />
+        </View>
+
+        {/* 3 — Tabs (sticky) */}
+        <View style={styles.tabsSticky}>
+          <View style={styles.tabs}>
+            <Tab
+              label="Surgeons"
+              count={mainDoctorPerformance.length}
+              active={tab === 'surgeons'}
+              color={C.surgeon}
+              onPress={() => switchTab('surgeons')}
+            />
+            <Tab
+              label="Assistant Doctors"
+              count={asstDoctorPerformance.length}
+              active={tab === 'assistants'}
+              color={C.assistant}
+              onPress={() => switchTab('assistants')}
+            />
           </View>
-        ) : null}
+        </View>
+
+        {/* 4 — Legend */}
+        <Text style={styles.legendLine}>
+          Convincing Score = surgeries done ÷ surgeries advised
+        </Text>
+
+        {/* 5 — Doctor list (plain Views now, no inner ScrollView) */}
+        <View style={styles.listContent}>
+          {list && list.length > 0 ? (
+            list.map(item => {
+              const key =
+                item.doctorId != null ? String(item.doctorId) : item.doctorName;
+              return (
+                <DoctorCard
+                  key={key}
+                  item={item}
+                  accent={accent}
+                  roleLabel={tab === 'surgeons' ? 'Surgeon' : 'Assistant'}
+                  expanded={expandedId === key}
+                  onToggle={() => toggleExpand(key)}
+                  detail={
+                    (
+                      (tab === 'surgeons'
+                        ? insights?.consultantDoctors
+                        : insights?.assistantDoctors) || []
+                    ).find(d => String(d.doctorId) === String(item.doctorId))
+                      ?.specialities || []
+                  }
+                />
+              );
+            })
+          ) : !loading ? (
+            <View style={styles.emptyWrap}>
+              <Text style={styles.emptyText}>No data available</Text>
+              <Text style={styles.emptySub}>
+                Try a different period from the filter above.
+              </Text>
+            </View>
+          ) : null}
+        </View>
       </ScrollView>
 
-      {/* Loading overlay */}
+      {/* Loading overlay — absolute, stays above the scroll */}
       {loading && (
         <View style={styles.loadingOverlay} pointerEvents="none">
           <ActivityIndicator size="large" color={C.brand} />
         </View>
       )}
 
-      {/* Month filter */}
+      {/* Period filter */}
       <Portal>
         <Modal
           visible={visible1}
           onDismiss={hideModal1}
           contentContainerStyle={styles.modal}
         >
-          <Text style={styles.modalTitle}>Select Month</Text>
-          <ModalDropdown
-            style={styles.dropdown}
-            textStyle={styles.dropdownText}
-            dropdownStyle={styles.dropdownList}
-            dropdownTextStyle={styles.dropdownItemText}
-            options={monthsList.map(m => m.label)}
-            onSelect={handleMonthChange}
-            defaultValue={selectedMonth.label}
-          />
+          <Text style={styles.modalTitle}>Select Period</Text>
+
+          {/* Mode toggle */}
+          <View style={styles.toggleRow}>
+            {[
+              { key: 'month', label: 'Monthly' },
+              { key: 'custom', label: 'Custom Range' },
+            ].map(m => {
+              const active = filterMode === m.key;
+              return (
+                <TouchableOpacity
+                  key={m.key}
+                  style={[styles.toggleBtn, active && styles.toggleBtnActive]}
+                  onPress={() => setFilterMode(m.key)}
+                  activeOpacity={0.85}
+                >
+                  <Text
+                    style={[
+                      styles.toggleText,
+                      active && styles.toggleTextActive,
+                    ]}
+                  >
+                    {m.label}
+                  </Text>
+                </TouchableOpacity>
+              );
+            })}
+          </View>
+
+          {filterMode === 'month' ? (
+            <ModalDropdown
+              style={styles.dropdown}
+              textStyle={styles.dropdownText}
+              dropdownStyle={styles.dropdownList}
+              dropdownTextStyle={styles.dropdownItemText}
+              options={monthsList.map(m => m.label)}
+              onSelect={handleMonthChange}
+              defaultValue={selectedMonth.label}
+            />
+          ) : (
+            <View>
+              {/* Presets */}
+              <View style={styles.presetRow}>
+                {[
+                  { key: '7d', label: '7D' },
+                  { key: '30d', label: '30D' },
+                  { key: '90d', label: '90D' },
+                  { key: 'fy', label: 'This FY' },
+                ].map(p => (
+                  <TouchableOpacity
+                    key={p.key}
+                    style={styles.presetChip}
+                    onPress={() => applyPreset(p.key)}
+                    activeOpacity={0.8}
+                  >
+                    <Text style={styles.presetText}>{p.label}</Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
+
+              <Text style={styles.fieldLabel}>From</Text>
+              <TouchableOpacity
+                style={styles.dateField}
+                onPress={() => setOpenFrom(true)}
+                activeOpacity={0.8}
+              >
+                <Text style={styles.dateFieldText}>{prettyDate(fromDate)}</Text>
+                <Text style={styles.dateFieldHint}>Change</Text>
+              </TouchableOpacity>
+
+              <Text style={[styles.fieldLabel, { marginTop: 14 }]}>To</Text>
+              <TouchableOpacity
+                style={styles.dateField}
+                onPress={() => setOpenTo(true)}
+                activeOpacity={0.8}
+              >
+                <Text style={styles.dateFieldText}>{prettyDate(toDate)}</Text>
+                <Text style={styles.dateFieldHint}>Change</Text>
+              </TouchableOpacity>
+
+              <Text style={styles.rangeNote}>
+                {daysBetween(fromDate, toDate)} day
+                {daysBetween(fromDate, toDate) === 1 ? '' : 's'} selected
+              </Text>
+            </View>
+          )}
+
           <KeyboardAvoidingView
             behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
           >
@@ -661,7 +839,7 @@ const ConvincingScoreV1 = ({ navigation }) => {
               </Button>
               <Button
                 mode="contained"
-                onPress={applyMonth}
+                onPress={applyFilter}
                 style={styles.mBtn}
                 buttonColor={C.brand}
               >
@@ -671,6 +849,36 @@ const ConvincingScoreV1 = ({ navigation }) => {
           </KeyboardAvoidingView>
         </Modal>
       </Portal>
+
+      {/* Native date pickers — kept OUTSIDE the Portal Modal so they layer above it */}
+      <DatePicker
+        modal
+        mode="date"
+        title="From date"
+        open={openFrom}
+        date={fromDate}
+        maximumDate={new Date()}
+        onConfirm={d => {
+          setOpenFrom(false);
+          setFromDate(d);
+          if (formatDateIST(d) > formatDateIST(toDate)) setToDate(d);
+        }}
+        onCancel={() => setOpenFrom(false)}
+      />
+      <DatePicker
+        modal
+        mode="date"
+        title="To date"
+        open={openTo}
+        date={toDate}
+        minimumDate={fromDate}
+        maximumDate={new Date()}
+        onConfirm={d => {
+          setOpenTo(false);
+          setToDate(d);
+        }}
+        onCancel={() => setOpenTo(false)}
+      />
 
       <InsightsModal
         visible={!!metricModal}
@@ -709,7 +917,6 @@ const styles = StyleSheet.create({
 
   periodChip: {
     alignSelf: 'flex-start',
-    marginTop: 12,
     marginLeft: 14,
     flexDirection: 'row',
     alignItems: 'center',
@@ -1042,4 +1249,122 @@ const styles = StyleSheet.create({
     marginTop: 22,
   },
   mBtn: { flex: 1, marginHorizontal: 6, borderColor: C.brand },
+  /* Filter mode toggle */
+  toggleRow: {
+    flexDirection: 'row',
+    backgroundColor: C.chip,
+    borderRadius: 10,
+    padding: 4,
+    marginBottom: 18,
+  },
+  toggleBtn: {
+    flex: 1,
+    paddingVertical: 10,
+    alignItems: 'center',
+    borderRadius: 8,
+  },
+  toggleBtnActive: { backgroundColor: C.brand },
+  toggleText: {
+    fontFamily: 'Lexend-Medium',
+    fontSize: 13,
+    color: C.inkSoft,
+  },
+  toggleTextActive: { color: '#fff' },
+
+  /* Custom range */
+  presetRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    marginBottom: 16,
+  },
+  presetChip: {
+    flex: 1,
+    marginHorizontal: 3,
+    paddingVertical: 7,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: C.line,
+    backgroundColor: '#FAFBFD',
+    alignItems: 'center',
+  },
+  presetText: {
+    fontFamily: 'Lexend-Medium',
+    fontSize: 12,
+    color: C.brand,
+  },
+  fieldLabel: {
+    fontFamily: 'Lexend-Medium',
+    fontSize: 13,
+    color: C.inkSoft,
+    marginBottom: 6,
+  },
+  dateField: {
+    borderWidth: 1,
+    borderColor: C.line,
+    borderRadius: 10,
+    paddingVertical: 13,
+    paddingHorizontal: 14,
+    backgroundColor: '#FAFBFD',
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  dateFieldText: {
+    fontFamily: 'Lexend-Medium',
+    fontSize: 15,
+    color: C.ink,
+  },
+  dateFieldHint: {
+    fontFamily: 'Lexend-Regular',
+    fontSize: 11,
+    color: C.surgeon,
+  },
+  rangeNote: {
+    fontFamily: 'Lexend-Regular',
+    fontSize: 12,
+    color: C.inkSoft,
+    textAlign: 'center',
+    marginTop: 14,
+  },
+  compareBlock: { marginTop: 18 },
+  compareRow: { flexDirection: 'row' },
+  compareChip: {
+    flex: 1,
+    marginRight: 6,
+    paddingVertical: 8,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: C.line,
+    backgroundColor: '#FAFBFD',
+    alignItems: 'center',
+  },
+  compareChipActive: { backgroundColor: C.brand, borderColor: C.brand },
+  compareText: {
+    fontFamily: 'Lexend-Medium',
+    fontSize: 12,
+    color: C.inkSoft,
+  },
+  compareTextActive: { color: '#fff' },
+  actionRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginHorizontal: 14,
+    marginTop: 12,
+  },
+  compareBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 12,
+    paddingVertical: 7,
+    borderRadius: 20,
+    backgroundColor: C.brand,
+  },
+  compareBtnText: { fontFamily: 'Lexend-Medium', fontSize: 12, color: '#fff' },
+  compareBtnChev: {
+    fontSize: 16,
+    color: '#fff',
+    marginLeft: 5,
+    marginTop: -2,
+  },
 });

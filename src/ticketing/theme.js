@@ -97,7 +97,7 @@ export const STATUS_STYLE = {
   'Sent Back': { bg: C.highBg, fg: C.orange },
   Approved: { bg: C.medBg, fg: C.blue },
   'In Progress': { bg: C.medBg, fg: C.blue },
-  'Waiting for Vendor': { bg: C.highBg, fg: C.orange },
+  'On Hold': { bg: C.highBg, fg: C.orange },
   // Blue: work in flight, same as In Progress. Amber: waiting on someone —
   // here, the Cluster Head.
   'With Branch': { bg: C.medBg, fg: C.blue },
@@ -105,6 +105,10 @@ export const STATUS_STYLE = {
   Resolved: { bg: C.lowBg, fg: C.green2 },
   Closed: { bg: C.badgeBg, fg: C.badgeText },
   Reopened: { bg: C.critBg, fg: C.red },
+  // Blue like In Progress: somebody is holding it. Amber for Pending Approval:
+  // waiting on a person, same as Branch Fixed.
+  Assigned: { bg: C.medBg, fg: C.blue },
+  'Pending Approval': { bg: C.highBg, fg: C.orange },
 };
 
 /**
@@ -116,12 +120,18 @@ export const STATUS_HINT = {
   'Sent Back': 'Your Cluster Head has sent this back to be reconsidered',
   Approved: 'With the department head',
   'In Progress': 'The department is working on it now',
-  'Waiting for Vendor': 'Blocked on an outside vendor',
+  'On Hold': 'Blocked — the department has paused this one',
   'With Branch': 'Your branch is fixing this one locally',
   'Branch Fixed': 'Fixed at the branch — your Cluster Head is reviewing it',
-  Resolved: 'Fixed — the department head will close it',
+  // Correct for BOTH paths now that the branch closes either one — which is why
+  // this map, which cannot see local_fix, is no longer lying about half of them.
+  Resolved: 'Fixed — check it and close it, or reopen it',
   Closed: 'Closed',
   Reopened: 'Reopened — back with the department',
+  Assigned: 'The department has put someone on it',
+  // NOT "resolved". The work is claimed done; the department has not agreed
+  // yet, and saying resolved early is how a ticket gets reopened on day one.
+  'Pending Approval': 'Fixed — the department head is reviewing it',
 };
 
 export const PRIORITIES = ['Critical', 'Medium', 'Low'];
@@ -456,7 +466,7 @@ export const S = StyleSheet.create({
     position: 'absolute',
     left: 15,
     right: 15,
-    bottom: 92,
+    bottom: 116,
     backgroundColor: C.toastBg,
     paddingVertical: 12,
     paddingHorizontal: 14,

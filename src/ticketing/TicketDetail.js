@@ -19,7 +19,7 @@
 // in the timeline. That is the difference between an audit trail and a log.
 // ─────────────────────────────────────────────────────────────────────────────
 
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
@@ -38,6 +38,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { useSelector } from 'react-redux';
 
 import { actOnTicket, buildActor, fetchTicket, getMeta } from './api';
+import { listAssignees } from './api';
 import {
   Badge,
   Btn,
@@ -102,14 +103,14 @@ const ACTION_UI = {
     tone: 'primary',
     needs: null,
     title: 'Close this ticket?',
-    body: 'This finishes it.',
+    body: 'Only do this if the issue is actually sorted. You can still reopen it later if it comes back.',
   },
   progress: {
     label: 'Update progress',
-    tone: 'secondary',
+    tone: 'primary',
     needs: 'progress',
-    title: 'Update progress',
-    body: 'Where has this got to?',
+    title: 'Where has this got to?',
+    body: 'Pick Done when the work is finished — your department head reviews it before the branch is told.',
   },
   // PDF §5 — replaces "Wrong department". The head moves it directly instead of
   // bouncing it back to the Cluster Head to re-route.
@@ -148,7 +149,52 @@ const ACTION_UI = {
     title: 'Reopen this ticket',
     body: 'Say what is still not right.',
   },
+  assign: {
+    label: 'Assign',
+    tone: 'primary',
+    needs: 'assignee',
+    title: 'Who is taking this?',
+    body: 'They will see it in their queue and can update it from there.',
+  },
+  fix: {
+    label: 'Mark as fixed',
+    tone: 'primary',
+    needs: 'remark',
+    title: 'Mark this fixed?',
+    body: 'Say what you did. Your department head reviews it before the branch is told.',
+  },
+  deptApprove: {
+    label: 'Approve the fix',
+    tone: 'primary',
+    needs: 'remark',
+    title: 'Approve this fix?',
+    body: 'This resolves the ticket and tells the branch.',
+  },
+  sendBack: {
+    label: 'Send back',
+    tone: 'danger',
+    needs: 'remark',
+    title: 'Send this back?',
+    body: 'It returns to the same person. Say what still needs doing.',
+  },
 };
+
+/**
+ * ACTION_UI, with the assign copy rewritten when someone already holds the
+ * ticket. `assign` is legal from every active state deliberately — that is the
+ * reassign path — but a bare "Assign" on a ticket that already has a name on it
+ * tells the head nothing about which of the two they are doing.
+ */
+function uiFor(action, ticket) {
+  const base = ACTION_UI[action];
+  if (!base || action !== 'assign' || !ticket?.assigneeName) return base;
+  return {
+    ...base,
+    label: 'Reassign',
+    title: `Move this off ${ticket.assigneeName}?`,
+    body: `${ticket.assigneeName} has it now. Whoever you pick takes it over, and ${ticket.assigneeName} stops seeing it.`,
+  };
+}
 
 // What this person is being asked to do, when the ticket is on their desk.
 // Ordered by precedence: a ticket offering several moves is named by the one
@@ -168,10 +214,13 @@ const MY_TURN = {
   resolveLocal: 'Fixed at the branch — resolve it if you are satisfied',
   closeLocal: 'With you — close it once you are satisfied',
   resolve: 'With you — resolve it when the work is done',
-  close: 'With you — close it once you are satisfied',
+  close: 'Fixed? Close it. Not fixed? Reopen it.',
   reassign: 'With you — resolve it, or move it to the right department',
   forward: 'With you — resolve it, or move it to the right department',
   reopen: 'Resolved. Reopen it if it is still not right.',
+  fix: 'With you — update it, or mark it fixed when it is done.',
+  deptApprove: 'Your team says this is fixed. Approve it or send it back.',
+  assign: 'In your department. Take it yourself or hand it to someone.',
 };
 
 // Offered as words rather than a number box: "2 days" is what a Cluster Head is
@@ -219,6 +268,45 @@ const TicketDetail = ({ navigation, route }) => {
   const [prompt, setPrompt] = useState(null); // { action, remark, value }
   const [preview, setPreview] = useState(null); // an attachment shown full-size
   const [toastMsg, toast] = useToast();
+  const [assignees, setAssignees] = useState([]);
+  const [assigneesLoading, setAssigneesLoading] = useState(false);
+
+  const loadAssignees = useCallback(async () => {
+    if (assignees.length || assigneesLoading) return;
+    setAssigneesLoading(true);
+    try {
+      const res = await listAssignees(actor);
+      setAssignees(res.assignees || []);
+    } catch (e) {
+      toast(e?.message || 'Could not load your team.');
+    } finally {
+      setAssigneesLoading(false);
+    }
+  }, [actor, assignees.length, assigneesLoading, toast]);
+
+  // Name AND mobile: two people called Rahul in one department is not
+  // hypothetical, and assigning to the wrong one is invisible until somebody
+  // asks why nothing has happened. The mobile is the key, so this cannot clash.
+  const labelFor = a => `${a.name} · ${a.mobile}`;
+  const assigneeOptions = useMemo(() => assignees.map(labelFor), [assignees]);
+  const mobileByLabel = useMemo(() => {
+    const m = {};
+    assignees.forEach(a => {
+      m[labelFor(a)] = a.mobile;
+    });
+    return m;
+  }, [assignees]);
+
+  // "Done" appears only when the server says `fix` is actually allowed. That
+  // keeps the dropdown honest for a head using progress on an unassigned
+  // ticket, where finishing is not on offer — rather than showing an option
+  // that fails on submit.
+  const progressOptions = useMemo(() => {
+    const base = ['In Progress', 'On Hold'];
+    return (ticket?.actions || []).includes('fix') ? [...base, 'Done'] : base;
+  }, [ticket]);
+
+  const doneChosen = prompt?.action === 'progress' && prompt?.value === 'Done';
 
   const load = useCallback(
     async (quiet = false) => {
@@ -271,10 +359,15 @@ const TicketDetail = ({ navigation, route }) => {
       'needs:',
       ACTION_UI[action]?.needs,
     );
-    const ui = ACTION_UI[action];
+    const ui = uiFor(action, ticket);
 
     if (!ui) return;
 
+    // Fetch the team as the sheet opens, not when it is submitted — by then
+    // the picker has already rendered empty and disabled. Cheap and lazy: only
+    // a head opening the assign sheet ever triggers it, and loadAssignees
+    // returns immediately once the list is in hand.
+    if (ui.needs === 'assignee') loadAssignees();
     if (!ui.needs) {
       Alert.alert(ui.title, ui.body, [
         { text: 'Cancel', style: 'cancel' },
@@ -295,7 +388,13 @@ const TicketDetail = ({ navigation, route }) => {
       // confirming or correcting, not choosing from scratch. Moving it starts
       // blank, because picking a DIFFERENT one is the whole point there.
       value:
-        ui.needs === 'approval' || ui.needs === 'localFix'
+        ui.needs === 'assignee'
+          ? // Prefilled on a REASSIGN so the head can see who they are taking
+            // it off. Blank on a first assignment.
+            ticket.assigneeName && ticket.assigneeMobile
+            ? `${ticket.assigneeName} · ${ticket.assigneeMobile}`
+            : ''
+          : ui.needs === 'approval' || ui.needs === 'localFix'
           ? ticket.department || ''
           : ui.needs === 'progress'
           ? 'In Progress'
@@ -307,7 +406,7 @@ const TicketDetail = ({ navigation, route }) => {
 
   const submitPrompt = () => {
     const { action, remark, value, priority, sla } = prompt;
-    const ui = ACTION_UI[action];
+    const ui = uiFor(action, ticket);
 
     // `comment` has no ACTION_UI entry — it is a note, not a workflow action.
     // Without this, ui.needs below throws on every Post.
@@ -326,6 +425,8 @@ const TicketDetail = ({ navigation, route }) => {
       if (!sla) return toast('Set a resolution time.');
       if (!remark.trim()) return toast('Say what the branch should do.');
     }
+    if (ui.needs === 'assignee' && !value)
+      return toast('Choose who takes this.');
     if (ui.needs === 'departmentReason') {
       if (!value) return toast('Pick a department.');
       // The server requires it too, but catching it here saves a round trip and
@@ -343,8 +444,21 @@ const TicketDetail = ({ navigation, route }) => {
       payload.priority = priority;
       payload.resolutionHours = SLA_OPTIONS.find(o => o.label === sla)?.hours;
     }
+    if (ui.needs === 'assignee') {
+      const assigneeMobile = mobileByLabel[value];
+      if (!assigneeMobile) return toast('Choose who takes this.');
+      payload.assigneeMobile = assigneeMobile;
+    }
     if (ui.needs === 'departmentReason') payload.department = value;
-    if (ui.needs === 'progress') payload.toStatus = value;
+    if (ui.needs === 'progress') {
+      if (value === 'Done') {
+        // Not a progress update — a hand-off. `fix` moves it to Pending
+        // Approval, logs FIXED and emails the head; progress does none of that.
+        if (!remark.trim()) return toast('Say what you did.');
+        return run('fix', { remark: remark.trim() });
+      }
+      payload.toStatus = value;
+    }
     run(action, payload);
   };
 
@@ -387,7 +501,7 @@ const TicketDetail = ({ navigation, route }) => {
   // Does the ticket sit with THIS person? Only moves that are genuinely a
   // decision count — see MY_TURN.
   const yourMove = actions.some(a => MY_TURN[a]);
-  const ui = prompt ? ACTION_UI[prompt.action] : null;
+  const ui = prompt ? uiFor(prompt.action, ticket) : null;
 
   return (
     <SafeAreaView style={S.screen} edges={['top']}>
@@ -572,7 +686,11 @@ const TicketDetail = ({ navigation, route }) => {
             <Text style={[S.bold, { marginBottom: 2 }]}>Your move</Text>
             <Text style={S.tiny}>This ticket is waiting on you.</Text>
             {actions.map(a => {
-              const cfg = ACTION_UI[a];
+              // `fix` is folded into the progress dropdown as "Done". It is
+              // still a real, separately-permissioned action — it just no
+              // longer gets a button of its own.
+              if (a === 'fix') return null;
+              const cfg = uiFor(a, ticket);
               if (!cfg) return null;
               return (
                 <Btn
@@ -722,6 +840,23 @@ const TicketDetail = ({ navigation, route }) => {
 
                   {ui?.needs === 'approval' && (
                     <>
+                      {!!ticket.departmentUnassigned && (
+                        <View
+                          style={{
+                            borderWidth: 1,
+                            borderColor: C.red,
+                            borderRadius: 14,
+                            padding: 12,
+                            marginTop: 12,
+                          }}
+                        >
+                          <Text style={[S.tiny, { color: C.red }]}>
+                            The branch raised this without a department. Read
+                            the description and pick who it belongs to — it
+                            cannot be approved unrouted.
+                          </Text>
+                        </View>
+                      )}
                       <Field label="Department" req>
                         <Select
                           label="Department"
@@ -774,6 +909,33 @@ const TicketDetail = ({ navigation, route }) => {
                     </>
                   )}
 
+                  {ui?.needs === 'assignee' && (
+                    <>
+                      <Field label="Assign to" req>
+                        <Select
+                          label="Assign to"
+                          placeholder={
+                            assigneesLoading
+                              ? 'Loading your team…'
+                              : assigneeOptions.length
+                              ? 'Choose who takes this'
+                              : 'No one on your team yet'
+                          }
+                          value={prompt.value}
+                          options={assigneeOptions}
+                          onChange={v => setPrompt({ ...prompt, value: v })}
+                          disabled={assigneesLoading || !assigneeOptions.length}
+                        />
+                      </Field>
+                      {!assigneesLoading && !assigneeOptions.length && (
+                        <Text style={[S.tiny, { color: C.red }]}>
+                          Add someone on the My Team tab first, or resolve this
+                          one yourself.
+                        </Text>
+                      )}
+                    </>
+                  )}
+
                   {ui?.needs === 'departmentReason' && (
                     <>
                       <Field label="Send it to" req>
@@ -812,14 +974,28 @@ const TicketDetail = ({ navigation, route }) => {
                   )}
 
                   {ui?.needs === 'progress' && (
-                    <Field label="Status">
-                      <Select
-                        label="Status"
-                        value={prompt.value}
-                        options={['In Progress', 'Waiting for Vendor']}
-                        onChange={v => setPrompt({ ...prompt, value: v })}
-                      />
-                    </Field>
+                    <>
+                      <Field label="Status">
+                        <Select
+                          label="Status"
+                          value={prompt.value}
+                          options={progressOptions}
+                          onChange={v => setPrompt({ ...prompt, value: v })}
+                        />
+                      </Field>
+                      {doneChosen && (
+                        <Field label="What did you do?" req>
+                          <Input
+                            multiline
+                            value={prompt.remark}
+                            onChangeText={t =>
+                              setPrompt({ ...prompt, remark: t })
+                            }
+                            placeholder="Your department head reads this before the branch is told. Example: replaced the compressor fan, tested for an hour."
+                          />
+                        </Field>
+                      )}
+                    </>
                   )}
 
                   {ui?.needs !== 'departmentReason' && (

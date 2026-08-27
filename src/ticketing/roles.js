@@ -109,15 +109,12 @@ export const ROLE_COPY = {
   },
   [TICKET_ROLE.DEPT_HEAD]: {
     title: 'Department Queue',
-    // PDF §2 — one head, no team, no assigning, and they close it themselves.
-    sub: 'Work the tickets your department receives, resolve them, and close them.',
+    sub: 'Take a ticket yourself or hand it to your team, then sign off the fix.',
     raiseTitle: '',
   },
   [TICKET_ROLE.DEPT_USER]: {
-    title: 'Ticketing',
-    // PDF §2 — nothing is assignable to them any more. They remain a
-    // recruitment role; this screen should not be reachable for them.
-    sub: 'Your login does not have a ticketing role.',
+    title: 'My Tickets',
+    sub: 'The tickets assigned to you. Update where each one has got to, and mark it fixed when it is done.',
     raiseTitle: '',
   },
   [TICKET_ROLE.SUPER_ADMIN]: {
@@ -156,8 +153,11 @@ export function tabsForRole(ticketRole) {
         { key: 'approvals', label: 'Approvals' },
       ];
     case TICKET_ROLE.DEPT_HEAD:
-      // PDF §2 — no team to manage, so no My Team tab. One queue.
-      return [{ key: 'dashboard', label: 'Department Queue' }];
+      // Two jobs: work the queue, and keep the team that works it.
+      return [
+        { key: 'dashboard', label: 'Department Queue' },
+        { key: 'team', label: 'My Team' },
+      ];
     case TICKET_ROLE.SUPER_ADMIN:
       // Dashboard = the group-wide numbers and the branch/department
       // breakdowns; Tickets = the filtered working list those breakdowns drill
@@ -168,6 +168,9 @@ export function tabsForRole(ticketRole) {
         { key: 'raise', label: 'Raise Ticket' },
       ];
     case TICKET_ROLE.DEPT_USER:
+      // One screen: what is on their desk. No dashboard — their job is the
+      // list in front of them, not the analytics above it.
+      return [{ key: 'dashboard', label: 'My Tickets' }];
     default:
       return [{ key: 'dashboard', label: 'Dashboard' }];
   }
@@ -186,10 +189,11 @@ export function canRaise(ticketRole) {
   );
 }
 export function isTicketingOnly(ticketRole) {
-  // Only a Department Head now. A Department User has no ticketing role at all
-  // (PDF §2) — they exist for recruitment, and sidebarNavForRole routes them
-  // there instead of into an empty queue.
-  return ticketRole === TICKET_ROLE.DEPT_HEAD;
+  // Both department roles. Neither has a Performance screen to return to, which
+  // is what this controls — see the back handler in TicketingHome.
+  return (
+    ticketRole === TICKET_ROLE.DEPT_HEAD || ticketRole === TICKET_ROLE.DEPT_USER
+  );
 }
 
 /**
@@ -242,7 +246,7 @@ export function sidebarNavForRole(ticketRole, department) {
   const ticketing = {
     key: 'ticketing',
     icon: '🎫',
-    label: 'Ticketing',
+    label: 'HelpDesk',
     screen: 'TicketingHome',
   };
   const recruitment = {
@@ -251,15 +255,6 @@ export function sidebarNavForRole(ticketRole, department) {
     label: 'Recruitment',
     screen: 'RecruitmentHome',
   };
-
-  // PDF §2 — a Department User has no ticketing role and runs no branch.
-  // Handled FIRST and by name: isTicketingOnly() now means Department Head
-  // alone, so without this they fall through to the else branch below and are
-  // handed Performance — the one door they must never be shown. Recruitment or
-  // nothing.
-  if (ticketRole === TICKET_ROLE.DEPT_USER) {
-    return canUseRecruitment(ticketRole, department) ? [recruitment] : [];
-  }
 
   const items = isTicketingOnly(ticketRole)
     ? [ticketing]
@@ -285,6 +280,11 @@ export function metricsForRole(ticketRole, d = {}) {
         { key: 'Open', value: d.open, label: 'Open at my branch' },
         { key: 'Critical', value: d.critical, label: 'Critical' },
         { key: 'Overdue', value: d.overdue, label: 'Overdue' },
+        {
+          key: 'Resolved',
+          value: d.byStatus?.Resolved || 0,
+          label: 'To close',
+        },
         { key: 'Closed', value: d.closedResolved, label: 'Closed / resolved' },
       ];
     case TICKET_ROLE.CLUSTER_HEAD:
@@ -315,6 +315,14 @@ export function metricsForRole(ticketRole, d = {}) {
           label: 'To start',
         },
         {
+          // Work the team says is done, waiting on the head to agree. The one
+          // number that is purely their move — everything else on this screen
+          // is waiting on somebody else.
+          key: 'PendingApproval',
+          value: d.byStatus?.['Pending Approval'] || 0,
+          label: 'To sign off',
+        },
+        {
           key: 'Resolved',
           value: d.byStatus?.Resolved || 0,
           label: 'To close',
@@ -323,10 +331,39 @@ export function metricsForRole(ticketRole, d = {}) {
         { key: 'Overdue', value: d.overdue, label: 'Overdue' },
       ];
     case TICKET_ROLE.DEPT_USER:
-      // PDF §2 — no ticketing role. Their scope is empty server-side, so tiles
-      // would be four confident zeros above a blank list. Better to show none
-      // and let ROLE_COPY explain why they're here.
-      return [];
+      // One tile per stage of their own journey, in order. No "On my desk"
+      // total: it was d.open — everything not Closed — which counted work they
+      // had already handed up and could no longer touch. The first three sum to
+      // what is actually on their desk, and each one is a single status, so the
+      // number and the list it opens can never disagree.
+      //
+      // No Overdue tile either. An overdue ticket is already flagged red on its
+      // card in the list below, and a fifth tile wraps out of the 2×2 grid.
+      return [
+        {
+          key: 'Assigned',
+          value: d.byStatus?.Assigned || 0,
+          label: 'Not started',
+        },
+        {
+          key: 'InProgress',
+          value: d.byStatus?.['In Progress'] || 0,
+          label: 'In progress',
+        },
+        {
+          key: 'OnHold',
+          value: d.byStatus?.['On Hold'] || 0,
+          label: 'On hold',
+        },
+        {
+          // Finished and handed up. Still open — nobody has signed it off — but
+          // no longer their move, which is why it needed its own tile rather
+          // than sitting inside a general count.
+          key: 'PendingApproval',
+          value: d.byStatus?.['Pending Approval'] || 0,
+          label: 'Done, awaiting sign-off',
+        },
+      ];
     default:
       return common;
   }
