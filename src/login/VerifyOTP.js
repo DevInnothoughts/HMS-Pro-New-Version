@@ -94,6 +94,12 @@ const VerifyOTP = ({ navigation }) => {
     };
   }, [resendButtonDisabledTime]);
 
+  // reset, not replace: replace would swap VerifyOTP for the home screen but
+  // leave EnterMobile beneath it, so the login screen would stay at the bottom
+  // of the stack — which is what sends "Home" in the tab bar back to login.
+  const goHome = (screen, params) =>
+    navigation.reset({ index: 0, routes: [{ name: screen, params }] });
+
   const verifyOtp = async () => {
     setLoading(true);
     firestore()
@@ -117,7 +123,7 @@ const VerifyOTP = ({ navigation }) => {
 
           // ── ticketing routing ──────────────────────────────────────────────
           // A Department Head / User is role:'User', so without this they fall
-          // through the checks below to AdminHome. They're cross-branch — their
+          // through the checks below to Home. They're cross-branch — their
           // department is their scope — so location holds the department and
           // locationArray is empty. Must stay ABOVE the role checks.
           if (
@@ -129,7 +135,7 @@ const VerifyOTP = ({ navigation }) => {
             dispatch(setLocation(data1.department ? data1.department : ''));
             dispatch(setLocationArray([]));
             setLoading(false);
-            navigation.navigate('TicketingHome');
+            goHome('TicketingHome');
             return;
           }
           // ───────────────────────────────────────────────────────────────────
@@ -144,7 +150,13 @@ const VerifyOTP = ({ navigation }) => {
             dispatch(setLocation(data1.location[0]));
             dispatch(setSubRole(data1.subRole ? data1.subRole : ''));
             setLoading(false);
-            navigation.navigate('AdminHome', { location: data1.location[0] });
+            goHome('Home', { location: data1.location[0] });
+            // if (data1.role === 'SuperAdmin') {
+            //   goHome('BranchSummary');
+            // } else if (data1.role === 'Admin') {
+            //   goHome('Home', { location: data1.location[0] });
+            // }
+          } else if (data1.role === 'Doctor') {
           } else {
             if (data1.role && data1.role === 'Doctor') {
               dispatch(setLocationArray(data1.location));
@@ -152,7 +164,7 @@ const VerifyOTP = ({ navigation }) => {
               dispatch(setRole('Doctor'));
               dispatch(setSubRole(''));
               setLoading(false);
-              navigation.navigate('DoctorHome', { location: data1.location });
+              goHome('DoctorHome', { location: data1.location });
             } else {
               if (data1.role && data1.role === 'AdAgency') {
                 dispatch(setRole(data1.role));
@@ -160,7 +172,7 @@ const VerifyOTP = ({ navigation }) => {
                 dispatch(setLocation(data1.location[0]));
                 dispatch(setSubRole(data1.subRole ? data1.subRole : ''));
                 setLoading(false);
-                navigation.navigate('leadsStats', {
+                goHome('leadsStats', {
                   location: data1.location[0],
                 });
               } else {
@@ -169,7 +181,7 @@ const VerifyOTP = ({ navigation }) => {
                 dispatch(setRole(''));
                 dispatch(setSubRole(data1.subRole ? data1.subRole : ''));
                 setLoading(false);
-                navigation.navigate('AdminHome', { location: data1.location });
+                goHome('Home', { location: data1.location });
               }
             }
           }

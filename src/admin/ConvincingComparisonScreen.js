@@ -44,7 +44,7 @@ import {
 } from './convincingPeriodUtils';
 
 // Keep in sync with ConvincingScoreNew.js.
-const BACKEND_URL = 'https://wedoc.in/hms';
+const BACKEND_URL = 'http://10.0.0.30:5100/hms';
 
 const C = {
   bg: '#F4F6F9',

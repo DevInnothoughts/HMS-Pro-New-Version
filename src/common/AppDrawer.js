@@ -189,6 +189,42 @@ const AppDrawer = ({
             {!!location && <Text style={styles.identityLoc}>{location}</Text>}
           </View>
 
+          {/* Branch Summary — SuperAdmin only, and first, because it is where
+              they land after login. It sits OUTSIDE the nav map on purpose:
+              sidebarNavForRole decides which modules a person has, and this is
+              a single screen rather than a module, so putting it in roles.js
+              would mean teaching that file about screens.
+
+              It also has to clear the `nav.length > 1` gate below — a
+              SuperAdmin with one module would otherwise lose this row along
+              with the menu-of-one. */}
+          {/* {role === 'SuperAdmin' && (
+            <TouchableOpacity
+              onPress={() => {
+                onClose();
+                if (active === 'branchSummary') return;
+                navigation.replace('BranchSummary');
+              }}
+              activeOpacity={0.8}
+              accessibilityRole="button"
+              accessibilityState={{ selected: active === 'branchSummary' }}
+              style={[
+                styles.navItem,
+                active === 'branchSummary' && styles.navItemActive,
+              ]}
+            >
+              <Text style={styles.navIcon}>▦</Text>
+              <Text
+                style={[
+                  styles.navLabel,
+                  active === 'branchSummary' && styles.navLabelActive,
+                ]}
+              >
+                Branch Summary
+              </Text>
+            </TouchableOpacity>
+          )} */}
+
           {/* .navItem — only shown when there's more than one module to switch
               between. A ticketing-only user has a single destination, so the
               rows would be a menu of one; the header already says where they are. */}

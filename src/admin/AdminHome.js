@@ -113,7 +113,7 @@ const AdminHome = ({ navigation }) => {
   const [menuOpen, setMenuOpen] = useState(false);
 
   const colors = ['#0a0', '#a00', '#00a', '#fa0', '#0af'];
-  const BACKEND_URL = 'https://wedoc.in/hms'; //'https://wedoc.in/hms'; //'https://admin.wedoc.in/ivr'; //
+  const BACKEND_URL = 'http://10.0.0.30:5100/hms'; //'http://10.0.0.30:5100/hms'; //'https://admin.wedoc.in/ivr'; //
 
   // ── Superadmin-only HMS AI (opens inside the app in a WebView) ──
   const HMS_AI_URL = 'https://hms-ai-api.vercel.app';

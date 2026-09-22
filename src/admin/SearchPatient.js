@@ -111,7 +111,7 @@ const SearchPatient = ({ navigation }) => {
   const [expandedPatientId, setExpandedPatientId] = useState(null);
   const [searched, setSearched] = useState(false);
 
-  const BACKEND_URL = 'https://wedoc.in/hms';
+  const BACKEND_URL = 'http://10.0.0.30:5100/hms';
 
   useEffect(() => {
     setFrom(page * itemsPerPage);

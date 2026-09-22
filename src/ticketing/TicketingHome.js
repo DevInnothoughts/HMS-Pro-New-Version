@@ -155,7 +155,7 @@ const TicketingHome = ({ navigation }) => {
         if (isTicketingOnly(ticketRole)) {
           return true;
         }
-        navigation.replace('AdminHome');
+        navigation.replace('Home');
         return true;
       };
       const sub = BackHandler.addEventListener('hardwareBackPress', onBack);

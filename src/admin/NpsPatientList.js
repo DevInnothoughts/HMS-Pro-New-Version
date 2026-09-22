@@ -11,7 +11,7 @@ import { Card, Modal } from 'react-native-paper';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useSelector } from 'react-redux';
 
-const BACKEND_URL = 'https://wedoc.in/hms';
+const BACKEND_URL = 'http://10.0.0.30:5100/hms';
 
 const NpsPatientList = ({ navigation }) => {
   const location = useSelector(state => state.location.value);

@@ -1112,7 +1112,7 @@ export function PatientListScreen({ data = [], onSelectPatient, navigation }) {
 
 // ─── Root (no external navigation library required) ───────────────────────────
 
-const BACKEND_URL = 'https://wedoc.in/hms';
+const BACKEND_URL = 'http://10.0.0.30:5100/hms';
 const getISTDate = date => {
   const now = new Date(date);
 
@@ -1539,3 +1539,6 @@ const S = StyleSheet.create({
   emptyBox: { padding: 32, alignItems: 'center' },
   emptyText: { fontSize: 14, color: TS, textAlign: 'center' },
 });
+// Exported so IHXClaimTrackerScreen can reuse the status master rather than
+// keeping a second copy of a 50-entry mapping that would drift.
+export { TYPE_CFG, parseIHXData, latestEvent, resolveStatus };

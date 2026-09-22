@@ -162,7 +162,7 @@ const PatientDetails = ({ navigation }) => {
   const [loading, setLoading] = useState(false);
   const [patientData, setPatientData] = useState([]);
 
-  const BACKEND_URL = 'https://wedoc.in/hms';
+  const BACKEND_URL = 'http://10.0.0.30:5100/hms';
 
   useEffect(() => {
     fetchPatientData(location, patient.patient_id);

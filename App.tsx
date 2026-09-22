@@ -49,7 +49,7 @@ import IPDBillSubCategoryDetails from './src/admin/IPDBillSubCategoryDetails';
 import PerformanceScreen from './src/admin/Performance';
 import ConvincingScoreV1 from './src/admin/ConvincingScoreNew';
 import DiagnosisVoiceAssistant from './src/admin/VoceToTextDiagnosis';
-import UserListScreen from './src/admin/UserList';
+//import UserListScreen from './src/admin/UserList';
 import PatientListScreen from './src/referredPatients/patientListScreen';
 import PatientDetailsScreen from './src/referredPatients/patientDetailsScreen';
 import ReferredBottomTab from './src/referredPatients/BottomTab';
@@ -71,6 +71,39 @@ import RequestDetail from './src/recruitment/RequestDetail';
 import LabCollectionReport from './src/admin/LabCollectionReport';
 import PartnerLeads from './src/admin/PartnerLeads';
 import ConvincingComparisonScreen from './src/admin/ConvincingComparisonScreen';
+
+// New UI imports
+import HomeScreen from './src/screens/HomeScreen';
+import SectionScreen from './src/screens/SectionScreen';
+import IPDFeedbackList from './src/screens/IPDFeedbackList';
+import IPDFeedbackDetail from './src/screens/IPDFeedbackDetail';
+import PostOpFeedbackList from './src/screens/PostOpFeedbackList';
+import PostOpFeedbackDetail from './src/screens/PostOpFeedbackDetail';
+import AppointmentsScreen from './src/screens/AppointmentsScreen';
+import OPDCollectionScreen from './src/screens/OPDCollectionScreen';
+import DailyOPDReportScreen from './src/screens/DailyOPDReportScreen';
+import OPDReportDetailScreen from './src/screens/OPDReportDetailScreen';
+import IPDInvoiceScreen from './src/screens/IPDInvoiceScreen';
+import IPDInvoiceStatusScreen from './src/screens/IPDInvoiceStatusScreen';
+import IPDCollectionScreen from './src/screens/IPDCollectionScreen';
+import IPDDueListScreen from './src/screens/IPDDueListScreen';
+import IHXClaimTrackerScreen from './src/screens/IHXClaimTrackerScreen';
+import LabCollectionScreen from './src/screens/LabCollectionScreen';
+import PharmacyBillingScreen from './src/screens/PharmacyBillingScreen';
+import IVRCallsScreen from './src/screens/IVRCallsScreen';
+import WebCallLeadsScreen from './src/screens/WebCallLeadsScreen';
+import HelplineCallsScreen from './src/screens/HelplineCallsScreen';
+import LeadsListScreen from './src/screens/LeadsListScreen';
+import PartnerLeadsScreen from './src/screens/PartnerLeadsScreen';
+import CallingCalendarScreen from './src/screens/CallingCalendarScreen';
+import LeadStatsReportScreen from './src/screens/LeadStatsReportScreen';
+import OPDIPDCollectionScreen from './src/screens/OPDIPDCollectionScreen';
+import BillingSummaryScreen from './src/screens/BillingSummaryScreen';
+import ConditionReportScreen from './src/screens/ConditionReportScreen';
+import ReferenceReportScreen from './src/screens/ReferenceReportScreen';
+import UserFormScreen from './src/screens/UserFormScreen';
+import UserListScreen from './src/screens/UserListScreen';
+import BranchSummaryScreen from './src/screens/BranchSummaryScreen';
 
 const Stack = createNativeStackNavigator();
 
@@ -126,7 +159,7 @@ function App(): React.JSX.Element {
                 component={DoctorHome}
                 options={{ headerShown: false }}
               />
-              <Stack.Screen
+              {/* <Stack.Screen
                 name="AdminIPDPayment"
                 component={IPDCollectionReport}
                 options={{
@@ -135,8 +168,8 @@ function App(): React.JSX.Element {
                   // headerTintColor: '#000',
                   // headerTitleStyle: {fontSize: 20},
                 }}
-              />
-              <Stack.Screen
+              /> */}
+              {/* <Stack.Screen
                 name="AdminOPDPayment"
                 component={OPDCollectionReport}
                 options={{
@@ -145,8 +178,8 @@ function App(): React.JSX.Element {
                   // headerTintColor: '#000',
                   // headerTitleStyle: {fontSize: 20},
                 }}
-              />
-              <Stack.Screen
+              /> */}
+              {/* <Stack.Screen
                 name="AdminOPDIPDPayment"
                 component={OPDIPDCollection}
                 options={{
@@ -155,8 +188,8 @@ function App(): React.JSX.Element {
                   // headerTintColor: '#000',
                   // headerTitleStyle: {fontSize: 20},
                 }}
-              />
-              <Stack.Screen
+              /> */}
+              {/* <Stack.Screen
                 name="DailyOPDPayment"
                 component={DailyOPDReport}
                 options={{
@@ -165,8 +198,8 @@ function App(): React.JSX.Element {
                   // headerTintColor: '#000',
                   // headerTitleStyle: {fontSize: 20},
                 }}
-              />
-              <Stack.Screen
+              /> */}
+              {/* <Stack.Screen
                 name="AppointmentDetails"
                 component={AppointmentDetails}
                 options={{
@@ -175,7 +208,7 @@ function App(): React.JSX.Element {
                   // headerTintColor: '#000',
                   // headerTitleStyle: {fontSize: 20},
                 }}
-              />
+              /> */}
               <Stack.Screen
                 name="DoctorsAppointments"
                 component={DoctorsAppointments}
@@ -237,7 +270,7 @@ function App(): React.JSX.Element {
                   headerShown: false,
                 }}
               />
-              <Stack.Screen
+              {/* <Stack.Screen
                 name="IVRCall"
                 component={IVRCallList}
                 options={{
@@ -246,8 +279,8 @@ function App(): React.JSX.Element {
                   // headerTintColor: '#000',
                   // headerTitleStyle: {fontSize: 20},
                 }}
-              />
-              <Stack.Screen
+              /> */}
+              {/* <Stack.Screen
                 name="HelplineCalls"
                 component={HelplineCallList}
                 options={{
@@ -256,7 +289,7 @@ function App(): React.JSX.Element {
                   // headerTintColor: '#000',
                   // headerTitleStyle: {fontSize: 20},
                 }}
-              />
+              /> */}
               {/* <Stack.Screen
               name="NewHelplineCalls"
               component={CallLogScreen}
@@ -267,7 +300,7 @@ function App(): React.JSX.Element {
                 // headerTitleStyle: {fontSize: 20},
               }}
             /> */}
-              <Stack.Screen
+              {/* <Stack.Screen
                 name="OPDReportDetails"
                 component={OPDReportDetails}
                 options={{
@@ -276,7 +309,7 @@ function App(): React.JSX.Element {
                   // headerTintColor: '#000',
                   // headerTitleStyle: {fontSize: 20},
                 }}
-              />
+              /> */}
               <Stack.Screen
                 name="DoctorOPDReportDetails"
                 component={DoctorOPDReportDetails}
@@ -287,7 +320,7 @@ function App(): React.JSX.Element {
                   // headerTitleStyle: {fontSize: 20},
                 }}
               />
-              <Stack.Screen
+              {/* <Stack.Screen
                 name="IPDBillDetails"
                 component={IPDBillDetails}
                 options={{
@@ -296,8 +329,8 @@ function App(): React.JSX.Element {
                   // headerTintColor: '#000',
                   // headerTitleStyle: {fontSize: 20},
                 }}
-              />
-              <Stack.Screen
+              /> */}
+              {/* <Stack.Screen
                 name="IPDBillSubCategoryDetails"
                 component={IPDBillSubCategoryDetails}
                 options={{
@@ -306,8 +339,8 @@ function App(): React.JSX.Element {
                   // headerTintColor: '#000',
                   // headerTitleStyle: {fontSize: 20},
                 }}
-              />
-              <Stack.Screen
+              /> */}
+              {/* <Stack.Screen
                 name="IPDDueList"
                 component={IPDDueList}
                 options={{
@@ -316,7 +349,7 @@ function App(): React.JSX.Element {
                   // headerTintColor: '#000',
                   // headerTitleStyle: {fontSize: 20},
                 }}
-              />
+              /> */}
               <Stack.Screen
                 name="DischargeCardDetails"
                 component={DischargeCardDetails}
@@ -337,7 +370,7 @@ function App(): React.JSX.Element {
                   // headerTitleStyle: {fontSize: 20},
                 }}
               />
-              <Stack.Screen
+              {/* <Stack.Screen
                 name="CallingList"
                 component={CallingList}
                 options={{
@@ -346,8 +379,8 @@ function App(): React.JSX.Element {
                   // headerTintColor: '#000',
                   // headerTitleStyle: {fontSize: 20},
                 }}
-              />
-              <Stack.Screen
+              /> */}
+              {/* <Stack.Screen
                 name="ReferenceData"
                 component={ReferenceData}
                 options={{
@@ -356,8 +389,8 @@ function App(): React.JSX.Element {
                   // headerTintColor: '#000',
                   // headerTitleStyle: {fontSize: 20},
                 }}
-              />
-              <Stack.Screen
+              /> */}
+              {/* <Stack.Screen
                 name="WebLeads"
                 component={WebLeads}
                 options={{
@@ -366,14 +399,14 @@ function App(): React.JSX.Element {
                   // headerTintColor: '#000',
                   // headerTitleStyle: {fontSize: 20},
                 }}
-              />
-              <Stack.Screen
+              /> */}
+              {/* <Stack.Screen
                 name="BotLeads"
                 component={BotLeads}
                 options={{
                   headerShown: false,
                 }}
-              />
+              /> */}
               <Stack.Screen
                 name="ApprovalStatus"
                 component={ApprovalStatus}
@@ -395,13 +428,13 @@ function App(): React.JSX.Element {
                   headerShown: false,
                 }}
               />
-              <Stack.Screen
+              {/* <Stack.Screen
                 name="UserList"
                 component={UserListScreen}
                 options={{
                   headerShown: false,
                 }}
-              />
+              /> */}
               <Stack.Screen
                 name="GPDashboard"
                 component={DashboardScreen}
@@ -440,13 +473,13 @@ function App(): React.JSX.Element {
                   // headerTitleStyle: {fontSize: 20},
                 }}
               />
-              <Stack.Screen
+              {/* <Stack.Screen
                 name="EvitalPharmacyData"
                 component={PharmacyInvoiceScreen}
                 options={{
                   headerShown: false,
                 }}
-              />
+              /> */}
               <Stack.Screen
                 name="ReportScreen"
                 component={ReportScreen}
@@ -454,13 +487,13 @@ function App(): React.JSX.Element {
                   headerShown: false,
                 }}
               />
-              <Stack.Screen
+              {/* <Stack.Screen
                 name="NpsPatientList"
                 component={NpsPatientList}
                 options={{
                   headerShown: false,
                 }}
-              />
+              /> */}
               <Stack.Screen
                 name="pharmacyAnalysis"
                 component={PharmacyAnalysis}
@@ -468,20 +501,20 @@ function App(): React.JSX.Element {
                   headerShown: false,
                 }}
               />
-              <Stack.Screen
+              {/* <Stack.Screen
                 name="IHXDataAnalysis"
                 component={IHXPatientTracker}
                 options={{
                   headerShown: false,
                 }}
-              />
-              <Stack.Screen
+              /> */}
+              {/* <Stack.Screen
                 name="conditionwiseReport"
                 component={require('./src/admin/SpecialityAnalytics').default}
                 options={{
                   headerShown: false,
                 }}
-              />
+              /> */}
               <Stack.Screen
                 name="leadsStats"
                 component={require('./src/adAgency/AdAgencyHome').default}
@@ -489,25 +522,25 @@ function App(): React.JSX.Element {
                   headerShown: false,
                 }}
               />
-
-              <Stack.Screen
+              {/* <Stack.Screen
                 name="summaryReport"
                 component={require('./src/admin/SummaryReportScreen').default}
                 options={{
                   headerShown: false,
                 }}
-              />
-              <Stack.Screen
+              /> */}
+              {/* <Stack.Screen
                 name="LeadStatsReport"
                 component={require('./src/admin/LeadsStatsReport').default}
                 options={{
                   headerShown: false,
                 }}
-              />
+              /> */}
               <Stack.Screen
                 name="PerformanceTracking"
                 component={
-                  require('./src/admin/TargetComparisonScreen').default
+                  require('./src/admin/targetComparison/TargetComparisonScreen')
+                    .default
                 }
                 options={{
                   headerShown: false,
@@ -543,7 +576,6 @@ function App(): React.JSX.Element {
                 component={DoctorPerformance}
                 options={{ headerShown: false }}
               />
-
               <Stack.Screen
                 name="TicketingHome"
                 component={TicketingHome}
@@ -564,19 +596,191 @@ function App(): React.JSX.Element {
                 component={RequestDetail}
                 options={{ headerShown: false }}
               />
-              <Stack.Screen
+              {/* <Stack.Screen
                 name="LabCollectionReport"
                 component={LabCollectionReport}
+                options={{ headerShown: false }}
+              /> */}
+              {/* <Stack.Screen
+                name="PartnerLeads"
+                component={PartnerLeads}
+                options={{ headerShown: false }}
+              /> */}
+              <Stack.Screen
+                name="ConvincingComparisonScreen"
+                component={ConvincingComparisonScreen}
+                options={{ headerShown: false }}
+              />
+              {/* New UI paths */}
+              <Stack.Screen
+                name="Home"
+                component={HomeScreen}
+                options={{ headerShown: false }}
+              />
+              <Stack.Screen
+                name="Section"
+                component={SectionScreen}
+                options={{ headerShown: false }}
+              />
+              <Stack.Screen
+                name="IPDFeedback"
+                component={IPDFeedbackList}
+                options={{ headerShown: false }}
+              />
+              <Stack.Screen
+                name="IPDFeedbackDetail"
+                component={IPDFeedbackDetail}
+                options={{ headerShown: false }}
+              />
+              <Stack.Screen
+                name="NpsPatientList"
+                component={PostOpFeedbackList}
+                options={{ headerShown: false }}
+              />
+              <Stack.Screen
+                name="PostOpFeedbackDetail"
+                component={PostOpFeedbackDetail}
+                options={{ headerShown: false }}
+              />
+              <Stack.Screen
+                name="AppointmentDetails"
+                component={AppointmentsScreen}
+                options={{ headerShown: false }}
+              />
+              <Stack.Screen
+                name="AdminOPDPayment"
+                component={OPDCollectionScreen}
+                options={{ headerShown: false }}
+              />
+              <Stack.Screen
+                name="DailyOPDPayment"
+                component={DailyOPDReportScreen}
+                options={{ headerShown: false }}
+              />
+              <Stack.Screen
+                name="OPDReportDetails"
+                component={OPDReportDetailScreen}
+                options={{ headerShown: false }}
+              />
+              <Stack.Screen
+                name="IPDBillDetails"
+                component={IPDInvoiceScreen}
+                options={{ headerShown: false }}
+              />
+              <Stack.Screen
+                name="IPDBillSubCategoryDetails"
+                component={IPDInvoiceStatusScreen}
+                options={{ headerShown: false }}
+              />
+              <Stack.Screen
+                name="AdminIPDPayment"
+                component={IPDCollectionScreen}
+                options={{ headerShown: false }}
+              />
+              <Stack.Screen
+                name="IPDDueList"
+                component={IPDDueListScreen}
+                options={{ headerShown: false }}
+              />
+              <Stack.Screen
+                name="IHXDataAnalysis"
+                component={IHXClaimTrackerScreen}
+                options={{ headerShown: false }}
+              />
+              <Stack.Screen
+                name="LabCollectionReport"
+                component={LabCollectionScreen}
+                options={{ headerShown: false }}
+              />
+
+              <Stack.Screen
+                name="EvitalPharmacyData"
+                component={PharmacyBillingScreen}
+                options={{ headerShown: false }}
+              />
+              <Stack.Screen
+                name="IVRCall"
+                component={IVRCallsScreen}
+                options={{ headerShown: false }}
+              />
+              <Stack.Screen
+                name="WebCallLeads"
+                component={WebCallLeadsScreen}
+                options={{ headerShown: false }}
+              />
+              <Stack.Screen
+                name="HelplineCalls"
+                component={HelplineCallsScreen}
+                options={{ headerShown: false }}
+              />
+              <Stack.Screen
+                name="WebLeads"
+                component={LeadsListScreen}
+                initialParams={{ source: 'web' }}
+                options={{ headerShown: false }}
+              />
+              <Stack.Screen
+                name="BotLeads"
+                component={LeadsListScreen}
+                initialParams={{ source: 'bot' }}
                 options={{ headerShown: false }}
               />
               <Stack.Screen
                 name="PartnerLeads"
-                component={PartnerLeads}
+                component={PartnerLeadsScreen}
                 options={{ headerShown: false }}
               />
               <Stack.Screen
-                name="ConvincingComparisonScreen"
-                component={ConvincingComparisonScreen}
+                name="CallingList"
+                component={CallingCalendarScreen}
+                options={{ headerShown: false }}
+              />
+              <Stack.Screen
+                name="LeadStatsReport"
+                component={LeadStatsReportScreen}
+                options={{ headerShown: false }}
+              />
+              <Stack.Screen
+                name="AdminOPDIPDPayment"
+                component={OPDIPDCollectionScreen}
+                options={{
+                  headerShown: false,
+                }}
+              />
+              <Stack.Screen
+                name="summaryReport"
+                component={BillingSummaryScreen}
+                options={{
+                  headerShown: false,
+                }}
+              />
+              <Stack.Screen
+                name="conditionwiseReport"
+                component={ConditionReportScreen}
+                options={{
+                  headerShown: false,
+                }}
+              />
+              <Stack.Screen
+                name="ReferenceData"
+                component={ReferenceReportScreen}
+                options={{
+                  headerShown: false,
+                }}
+              />
+              <Stack.Screen
+                name="AddUserForm"
+                component={UserFormScreen}
+                options={{ headerShown: false }}
+              />
+              <Stack.Screen
+                name="UserList"
+                component={UserListScreen}
+                options={{ headerShown: false }}
+              />
+              <Stack.Screen
+                name="BranchSummary"
+                component={BranchSummaryScreen}
                 options={{ headerShown: false }}
               />
             </Stack.Navigator>

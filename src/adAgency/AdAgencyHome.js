@@ -89,7 +89,7 @@ const adAgencyHome = ({ navigation }) => {
   const [statsData, setStatsData] = useState(null); // <-- holds data for Excel export
 
   const colors = ['#0a0', '#a00', '#00a', '#fa0', '#0af'];
-  const BACKEND_URL = 'https://wedoc.in/hms'; //'https://wedoc.in/hms'; //'https://admin.wedoc.in/ivr'; //
+  const BACKEND_URL = 'http://10.0.0.30:5100/hms'; //'http://10.0.0.30:5100/hms'; //'https://admin.wedoc.in/ivr'; //
 
   const renderStars = (rating = 0) => {
     const rounded = Math.round(rating * 2) / 2; // supports half stars

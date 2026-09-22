@@ -27,7 +27,7 @@ import { useSelector } from 'react-redux';
 import { useRoute } from '@react-navigation/native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
-const BACKEND_URL = 'https://wedoc.in/hms';
+const BACKEND_URL = 'http://10.0.0.30:5100/hms';
 
 // Enable LayoutAnimation on Android
 if (

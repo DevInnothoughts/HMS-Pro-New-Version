@@ -62,7 +62,7 @@ const CallAndWebLeadApproval = () => {
   const [isBotLeadModalVisible, setBotLeadModalVisible] = useState(false);
   const [webLeadSeries, setWebLeadSeries] = useState([]);
   const [botLeadSeries, setBotLeadSeries] = useState([]);
-  const BACKEND_URL = 'https://wedoc.in/hms'; //'https://wedoc.in/hms'; //'https://admin.wedoc.in/ivr'; //
+  const BACKEND_URL = 'http://10.0.0.30:5100/hms'; //'http://10.0.0.30:5100/hms'; //'https://admin.wedoc.in/ivr'; //
 
   useEffect(() => {
     fetchDashboardValues(location);

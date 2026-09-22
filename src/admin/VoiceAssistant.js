@@ -13,7 +13,7 @@ import Icon from 'react-native-vector-icons/MaterialCommunityIcons';
 //import { startSpeechToText } from 'react-native-voice-to-text';
 import AIResponseCard from './AIResponseLayout';
 
-const BACKEND_URL = 'https://wedoc.in/hms';
+const BACKEND_URL = 'http://10.0.0.30:5100/hms';
 
 const VoiceAssistant = ({ data }) => {
   const [modalVisible, setModalVisible] = useState(false);

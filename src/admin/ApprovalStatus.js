@@ -22,7 +22,7 @@ import ModalDropdown from 'react-native-modal-dropdown'; // Import the library
 import { useSelector } from 'react-redux';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
-const BACKEND_URL = 'https://wedoc.in/hms';
+const BACKEND_URL = 'http://10.0.0.30:5100/hms';
 const now = new Date();
 const firstDayOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
 const lastDayOfMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0);

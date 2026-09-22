@@ -35,7 +35,7 @@ const EnterMobile = ({ navigation }) => {
   const [mobile, setMobile] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState({ status: false, message: '' });
-  const BACKEND_URL = 'https://wedoc.in/hms'; //'http://192.168.1.4:5100/ivr'; //'https://admin.wedoc.in/ivr'; //
+  const BACKEND_URL = 'http://10.0.0.30:5100/hms'; //'http://192.168.1.4:5100/ivr'; //'https://admin.wedoc.in/ivr'; //
 
   const fetchFirebaseData = async () => {
     const querySnapshot = await firestore()
@@ -87,7 +87,7 @@ const EnterMobile = ({ navigation }) => {
                   );
                   dispatch(setLocationArray([]));
                   setLoading(false);
-                  navigation.navigate('TicketingHome');
+                  navigation.replace('TicketingHome');
                   return;
                 }
                 // Dispatch the location to Redux
@@ -100,9 +100,16 @@ const EnterMobile = ({ navigation }) => {
                   dispatch(setLocation(data1.location[0]));
                   dispatch(setSubRole(data1.subRole ? data1.subRole : ''));
                   setLoading(false);
-                  navigation.navigate('AdminHome', {
+                  navigation.replace('Home', {
                     location: data1.location[0],
                   });
+                  // if (data1.role === 'SuperAdmin') {
+                  //   navigation.replace('BranchSummary');
+                  // } else {
+                  //   navigation.replace('Home', {
+                  //     location: data1.location[0],
+                  //   });
+                  // }
                 } else {
                   if (data1.role && data1.role === 'Doctor') {
                     dispatch(setLocationArray(data1.location));
@@ -110,7 +117,7 @@ const EnterMobile = ({ navigation }) => {
                     dispatch(setRole('Doctor'));
                     dispatch(setSubRole(''));
                     setLoading(false);
-                    navigation.navigate('DoctorHome', {
+                    navigation.replace('DoctorHome', {
                       location: data1.location,
                     });
                   } else {
@@ -120,7 +127,7 @@ const EnterMobile = ({ navigation }) => {
                       dispatch(setLocation(data1.location[0]));
                       dispatch(setSubRole(data1.subRole ? data1.subRole : ''));
                       setLoading(false);
-                      navigation.navigate('leadsStats', {
+                      navigation.replace('leadsStats', {
                         location: data1.location[0],
                       });
                     } else {
@@ -129,7 +136,7 @@ const EnterMobile = ({ navigation }) => {
                       dispatch(setRole(''));
                       dispatch(setSubRole(data1.subRole ? data1.subRole : ''));
                       setLoading(false);
-                      navigation.navigate('AdminHome', {
+                      navigation.replace('Home', {
                         location: data1.location,
                       });
                     }

@@ -113,7 +113,7 @@ const BottomTab = ({ navigation }) => {
       {role === 'SuperAdmin' && (
         <TouchableOpacity
           onPress={() => {
-            navigation.navigate('UserList');
+            navigation.navigate('AddUserForm');
           }}
           style={styles.bottomTab}
         >

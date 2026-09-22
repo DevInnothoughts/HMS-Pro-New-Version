@@ -69,7 +69,7 @@ const BotLeads = ({ navigation }) => {
   }, [filteredRecords, currentPage]);
   //console.log('Paginated leads: ', paginatedLeads);
 
-  const BACKEND_URL = 'https://wedoc.in/hms'; //'http://192.168.1.4:5100/ivr'; //'https://admin.wedoc.in/ivr'; //
+  const BACKEND_URL = 'http://10.0.0.30:5100/hms'; //'http://192.168.1.4:5100/ivr'; //'https://admin.wedoc.in/ivr'; //
 
   const fetchLeadList = useCallback(location => {
     setLoading(true);

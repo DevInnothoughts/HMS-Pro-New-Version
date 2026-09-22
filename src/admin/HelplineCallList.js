@@ -47,7 +47,7 @@ const HelplineCallList = ({ navigation }) => {
   const [notAttended, setNotAttended] = useState(false);
   const [filteredList, setFilteredList] = useState([]);
 
-  const BACKEND_URL = 'https://wedoc.in/hms'; //'https://admin.wedoc.in/ivr'; //'http://192.168.0.118:4000/ivr';
+  const BACKEND_URL = 'http://10.0.0.30:5100/hms'; //'https://admin.wedoc.in/ivr'; //'http://192.168.0.118:4000/ivr';
 
   useEffect(() => {
     getData();

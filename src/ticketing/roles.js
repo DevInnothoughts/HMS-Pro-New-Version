@@ -241,7 +241,8 @@ export function sidebarNavForRole(ticketRole, department) {
     key: 'performance',
     icon: '📈',
     label: 'Performance',
-    screen: 'AdminHome',
+    //screen: 'AdminHome',
+    screen: 'Home',
   };
   const ticketing = {
     key: 'ticketing',

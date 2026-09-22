@@ -29,7 +29,7 @@ import XLSX from 'xlsx';
 import Share from 'react-native-share';
 import LostLeadsTab from './LostLeadsTab';
 
-const BACKEND_URL = 'https://wedoc.in/hms';
+const BACKEND_URL = 'http://10.0.0.30:5100/hms';
 const TIMEOUT_DURATION = 30000; // 30s — Excel queries over a date range can be slow
 const DSR_TIMEOUT = 120000; // 2 min — DSR fans out across many branches + emails
 const IPD_DUE_MAX_DAYS = 730; // cap the IPD Due date range span

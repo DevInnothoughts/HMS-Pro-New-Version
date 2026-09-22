@@ -55,7 +55,7 @@ const ConvincingScore = ({ navigation }) => {
   const [mainDoctorPerformance, setMainDoctorPerformance] = useState([]);
   const [asstDoctorPerformance, setAsstDoctorPerformance] = useState([]);
 
-  const BACKEND_URL = 'https://wedoc.in/hms'; //'http://192.168.1.4:5100/ivr'; //'https://admin.wedoc.in/ivr'; //
+  const BACKEND_URL = 'http://10.0.0.30:5100/hms'; //'http://192.168.1.4:5100/ivr'; //'https://admin.wedoc.in/ivr'; //
 
   const generateMonthsList = () => {
     const currentDate = new Date();

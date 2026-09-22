@@ -70,12 +70,14 @@ const PartnerLeads = ({ navigation }) => {
   const [expandedLeadId, setExpandedLeadId] = useState(null);
   const [currentPage, setCurrentPage] = useState(1);
   const [billType, setBillType] = useState('');
-  const [sourceFilter, setSourceFilter] = useState('All');
+  const [sourceFilter, setSourceFilter] = useState(
+    route.params?.sourceFilter || 'All',
+  );
   const [searchQuery, setSearchQuery] = useState('');
 
   const itemsPerPage = 10;
 
-  const BACKEND_URL = 'https://wedoc.in/hms'; //'http://192.168.1.4:5100/ivr'; //'https://admin.wedoc.in/ivr'; //
+  const BACKEND_URL = 'http://10.0.0.30:5100/hms'; //'http://192.168.1.4:5100/ivr'; //'https://admin.wedoc.in/ivr'; //
 
   /* ── fetch ──────────────────────────────────────────────────────────── */
 
@@ -588,6 +590,12 @@ const PartnerLeads = ({ navigation }) => {
                           Condition : {item.medical_condition}
                         </Text>
                       ) : null}
+                      {item.message ? (
+                        <View style={styles.messageBox}>
+                          <Text style={styles.messageLabel}>THEIR MESSAGE</Text>
+                          <Text style={styles.messageText}>{item.message}</Text>
+                        </View>
+                      ) : null}
                       {item.gender ? (
                         <Text style={styles.cell}>Gender : {item.gender}</Text>
                       ) : null}
@@ -793,4 +801,24 @@ const styles = StyleSheet.create({
     fontSize: 13,
     color: '#000',
   },
+  // The enquirer's own words get a block rather than a "Label : value" line —
+  // a message runs to several sentences and would wrap badly inline with the
+  // one-line fields above it.
+  messageBox: {
+    borderLeftWidth: 2,
+    borderLeftColor: '#0d7592',
+    backgroundColor: '#F2F8FA',
+    borderRadius: 6,
+    paddingVertical: 8,
+    paddingHorizontal: 10,
+    marginTop: 6,
+    marginBottom: 4,
+  },
+  messageLabel: {
+    fontSize: 9,
+    letterSpacing: 0.8,
+    color: '#6C7C75',
+    marginBottom: 4,
+  },
+  messageText: { fontSize: 13, color: '#000', lineHeight: 19 },
 });

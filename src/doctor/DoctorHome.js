@@ -57,7 +57,7 @@ const DoctorHome = ({ navigation }) => {
   const [dashboardValues, setDashboardValues] = useState({});
   const [series, setSeries] = useState([]);
   const [helplineSeries, setHelplineSeries] = useState([]);
-  const BACKEND_URL = 'https://wedoc.in/hms'; //'https://wedoc.in/hms'; //'https://admin.wedoc.in/ivr'; //
+  const BACKEND_URL = 'http://10.0.0.30:5100/hms'; //'http://10.0.0.30:5100/hms'; //'https://admin.wedoc.in/ivr'; //
 
   // For exiting App
   useFocusEffect(

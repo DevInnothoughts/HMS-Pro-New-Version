@@ -14,7 +14,7 @@ import { ActivityIndicator } from 'react-native-paper';
 import Icon from 'react-native-vector-icons/MaterialCommunityIcons';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
-const BACKEND_URL = 'https://wedoc.in/hms';
+const BACKEND_URL = 'http://10.0.0.30:5100/hms';
 
 const DiagnosisVoiceAssistant = ({ navigation }) => {
   const [recognizedText, setRecognizedText] = useState('');

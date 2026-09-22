@@ -36,7 +36,12 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 
 const screenWidth = Dimensions.get('window').width;
 
-const BACKEND_URL = 'https://wedoc.in/hms'; //'http://192.168.1.4:5100/ivr'; //'https://admin.wedoc.in/ivr'; //
+// Spreading `undefined` throws, and optional chaining returns `undefined`.
+// arr() makes a missing/!Array branch render as an empty chart instead of
+// crashing the whole screen.
+const arr = v => (Array.isArray(v) ? v : []);
+
+const BACKEND_URL = 'http://10.0.0.30:5100/hms'; //'http://192.168.1.4:5100/ivr'; //'https://admin.wedoc.in/ivr'; //
 
 const PerformanceScreen = ({ navigation }) => {
   const route = useRoute();
@@ -147,7 +152,7 @@ const PerformanceScreen = ({ navigation }) => {
       try {
         setLoading(true);
         const response = await fetch(
-          `${BACKEND_URL}/performance?location=${location}`,
+          `${BACKEND_URL}/performance?location=${encodeURIComponent(location)}`,
           requestOptions,
         );
         const json = await response.json();
@@ -607,15 +612,15 @@ const PerformanceScreen = ({ navigation }) => {
                     <>
                       <SingleBarChart
                         title="IVR Calls"
-                        chartData={sampleData['Yearly']['IVR Calls']}
+                        chartData={sampleData?.Yearly?.['IVR Calls']}
                       />
                       <SingleBarChart
                         title="Web Leads"
-                        chartData={sampleData['Yearly']['Web Leads']}
+                        chartData={sampleData?.Yearly?.['Web Leads']}
                       />
                       <SingleBarChart
                         title="Bot Leads"
-                        chartData={sampleData['Yearly']['Bot Leads']}
+                        chartData={sampleData?.Yearly?.['Bot Leads']}
                       />
                     </>
                   ) : (
@@ -624,15 +629,15 @@ const PerformanceScreen = ({ navigation }) => {
                         title="IVR Calls"
                         timePeriod={timePeriod}
                         chartData={{
-                          labels: [
-                            ...leadsData[timePeriod]?.ivrChartData?.labels,
-                          ],
-                          thisYear: [
-                            ...leadsData[timePeriod]?.ivrChartData?.thisYear,
-                          ],
-                          lastYear: [
-                            ...leadsData[timePeriod]?.ivrChartData?.lastYear,
-                          ],
+                          labels: arr(
+                            leadsData[timePeriod]?.ivrChartData?.labels,
+                          ),
+                          thisYear: arr(
+                            leadsData[timePeriod]?.ivrChartData?.thisYear,
+                          ),
+                          lastYear: arr(
+                            leadsData[timePeriod]?.ivrChartData?.lastYear,
+                          ),
                         }}
                       />
                       <View style={{ marginVertical: 10 }}>
@@ -640,15 +645,15 @@ const PerformanceScreen = ({ navigation }) => {
                           title="Web Leads"
                           timePeriod={timePeriod}
                           chartData={{
-                            labels: [
-                              ...leadsData[timePeriod]?.webChartData?.labels,
-                            ],
-                            thisYear: [
-                              ...leadsData[timePeriod]?.webChartData?.thisYear,
-                            ],
-                            lastYear: [
-                              ...leadsData[timePeriod]?.webChartData?.lastYear,
-                            ],
+                            labels: arr(
+                              leadsData[timePeriod]?.webChartData?.labels,
+                            ),
+                            thisYear: arr(
+                              leadsData[timePeriod]?.webChartData?.thisYear,
+                            ),
+                            lastYear: arr(
+                              leadsData[timePeriod]?.webChartData?.lastYear,
+                            ),
                           }}
                         />
                       </View>
@@ -658,15 +663,15 @@ const PerformanceScreen = ({ navigation }) => {
                           title="Chatbot Leads"
                           timePeriod={timePeriod}
                           chartData={{
-                            labels: [
-                              ...leadsData[timePeriod]?.botChartData?.labels,
-                            ],
-                            thisYear: [
-                              ...leadsData[timePeriod]?.botChartData?.thisYear,
-                            ],
-                            lastYear: [
-                              ...leadsData[timePeriod]?.botChartData?.lastYear,
-                            ],
+                            labels: arr(
+                              leadsData[timePeriod]?.botChartData?.labels,
+                            ),
+                            thisYear: arr(
+                              leadsData[timePeriod]?.botChartData?.thisYear,
+                            ),
+                            lastYear: arr(
+                              leadsData[timePeriod]?.botChartData?.lastYear,
+                            ),
                           }}
                         />
                       </View>
@@ -681,17 +686,17 @@ const PerformanceScreen = ({ navigation }) => {
                     <>
                       <SingleBarChart
                         title="New Appointments"
-                        chartData={sampleData['Yearly']['New Appointments']}
+                        chartData={sampleData?.Yearly?.['New Appointments']}
                       />
                       <SingleBarChart
                         title="Follow-up Appointments"
                         chartData={
-                          sampleData['Yearly']['Follow-up Appointments']
+                          sampleData?.Yearly?.['Follow-up Appointments']
                         }
                       />
                       <SingleBarChart
                         title="IPD Patients"
-                        chartData={sampleData['Yearly']['IPD Patients']}
+                        chartData={sampleData?.Yearly?.['IPD Patients']}
                       />
                     </>
                   ) : (
@@ -700,18 +705,18 @@ const PerformanceScreen = ({ navigation }) => {
                         title="New Appointments"
                         timePeriod={timePeriod}
                         chartData={{
-                          labels: [
-                            ...patientsData[timePeriod]?.newPatientChartData
+                          labels: arr(
+                            patientsData[timePeriod]?.newPatientChartData
                               ?.labels,
-                          ],
-                          thisYear: [
-                            ...patientsData[timePeriod]?.newPatientChartData
+                          ),
+                          thisYear: arr(
+                            patientsData[timePeriod]?.newPatientChartData
                               ?.thisYear,
-                          ],
-                          lastYear: [
-                            ...patientsData[timePeriod]?.newPatientChartData
+                          ),
+                          lastYear: arr(
+                            patientsData[timePeriod]?.newPatientChartData
                               ?.lastYear,
-                          ],
+                          ),
                         }}
                       />
                       <View style={{ marginVertical: 10 }}>
@@ -719,18 +724,18 @@ const PerformanceScreen = ({ navigation }) => {
                           title="Follow-Up Appointments"
                           timePeriod={timePeriod}
                           chartData={{
-                            labels: [
-                              ...patientsData[timePeriod]
-                                ?.followUpPatientChartData?.labels,
-                            ],
-                            thisYear: [
-                              ...patientsData[timePeriod]
-                                ?.followUpPatientChartData?.thisYear,
-                            ],
-                            lastYear: [
-                              ...patientsData[timePeriod]
-                                ?.followUpPatientChartData?.lastYear,
-                            ],
+                            labels: arr(
+                              patientsData[timePeriod]?.followUpPatientChartData
+                                ?.labels,
+                            ),
+                            thisYear: arr(
+                              patientsData[timePeriod]?.followUpPatientChartData
+                                ?.thisYear,
+                            ),
+                            lastYear: arr(
+                              patientsData[timePeriod]?.followUpPatientChartData
+                                ?.lastYear,
+                            ),
                           }}
                         />
                       </View>
@@ -739,18 +744,18 @@ const PerformanceScreen = ({ navigation }) => {
                           title="IPD Patients"
                           timePeriod={timePeriod}
                           chartData={{
-                            labels: [
-                              ...patientsData[timePeriod]?.ipdPatientChartData
+                            labels: arr(
+                              patientsData[timePeriod]?.ipdPatientChartData
                                 ?.labels,
-                            ],
-                            thisYear: [
-                              ...patientsData[timePeriod]?.ipdPatientChartData
+                            ),
+                            thisYear: arr(
+                              patientsData[timePeriod]?.ipdPatientChartData
                                 ?.thisYear,
-                            ],
-                            lastYear: [
-                              ...patientsData[timePeriod]?.ipdPatientChartData
+                            ),
+                            lastYear: arr(
+                              patientsData[timePeriod]?.ipdPatientChartData
                                 ?.lastYear,
-                            ],
+                            ),
                           }}
                         />
                       </View>
@@ -765,11 +770,11 @@ const PerformanceScreen = ({ navigation }) => {
                     <>
                       <SingleBarChart
                         title="OPD Invoice"
-                        chartData={sampleData['Yearly']['OPD Invoice']}
+                        chartData={sampleData?.Yearly?.['OPD Invoice']}
                       />
                       <SingleBarChart
                         title="LAB Invoice"
-                        chartData={sampleData['Yearly']['LAB Invoice']}
+                        chartData={sampleData?.Yearly?.['LAB Invoice']}
                       />
                     </>
                   ) : (
@@ -778,32 +783,30 @@ const PerformanceScreen = ({ navigation }) => {
                         title="Overall OPD Invoice"
                         timePeriod={timePeriod}
                         chartData={{
-                          labels: [
-                            ...OPDData[timePeriod]?.opdPatientChartData?.labels,
-                          ],
-                          thisYear: [
-                            ...OPDData[timePeriod]?.opdPatientChartData
-                              ?.thisYear,
-                          ],
-                          lastYear: [
-                            ...OPDData[timePeriod]?.opdPatientChartData
-                              ?.lastYear,
-                          ],
+                          labels: arr(
+                            OPDData[timePeriod]?.opdPatientChartData?.labels,
+                          ),
+                          thisYear: arr(
+                            OPDData[timePeriod]?.opdPatientChartData?.thisYear,
+                          ),
+                          lastYear: arr(
+                            OPDData[timePeriod]?.opdPatientChartData?.lastYear,
+                          ),
                         }}
                       />
                       <ComparisonChart
                         title="LAB Invoice"
                         timePeriod={timePeriod}
                         chartData={{
-                          labels: [
-                            ...OPDData[timePeriod]?.labChartData?.labels,
-                          ],
-                          thisYear: [
-                            ...OPDData[timePeriod]?.labChartData?.thisYear,
-                          ],
-                          lastYear: [
-                            ...OPDData[timePeriod]?.labChartData?.lastYear,
-                          ],
+                          labels: arr(
+                            OPDData[timePeriod]?.labChartData?.labels,
+                          ),
+                          thisYear: arr(
+                            OPDData[timePeriod]?.labChartData?.thisYear,
+                          ),
+                          lastYear: arr(
+                            OPDData[timePeriod]?.labChartData?.lastYear,
+                          ),
                         }}
                       />
                     </>
@@ -818,11 +821,11 @@ const PerformanceScreen = ({ navigation }) => {
                       <>
                         <SingleBarChart
                           title="IPD Invoice"
-                          chartData={sampleData['Yearly']['IPD Invoice']}
+                          chartData={sampleData?.Yearly?.['IPD Invoice']}
                         />
                         <SingleBarChart
                           title="IPD Patients"
-                          chartData={sampleData['Yearly']['IPD Patients']}
+                          chartData={sampleData?.Yearly?.['IPD Patients']}
                         />
                       </>
                     ) : (
@@ -831,18 +834,17 @@ const PerformanceScreen = ({ navigation }) => {
                           title="IPD Invoice"
                           timePeriod={timePeriod}
                           chartData={{
-                            labels: [
-                              ...IPDData[timePeriod]?.ipdPatientChartData
-                                ?.labels,
-                            ],
-                            thisYear: [
-                              ...IPDData[timePeriod]?.ipdPatientChartData
+                            labels: arr(
+                              IPDData[timePeriod]?.ipdPatientChartData?.labels,
+                            ),
+                            thisYear: arr(
+                              IPDData[timePeriod]?.ipdPatientChartData
                                 ?.thisYear,
-                            ],
-                            lastYear: [
-                              ...IPDData[timePeriod]?.ipdPatientChartData
+                            ),
+                            lastYear: arr(
+                              IPDData[timePeriod]?.ipdPatientChartData
                                 ?.lastYear,
-                            ],
+                            ),
                           }}
                         />
                         <View style={{ marginVertical: 10 }}>
@@ -850,18 +852,18 @@ const PerformanceScreen = ({ navigation }) => {
                             title="IPD Patients"
                             timePeriod={timePeriod}
                             chartData={{
-                              labels: [
-                                ...patientsData[timePeriod]?.ipdPatientChartData
+                              labels: arr(
+                                patientsData[timePeriod]?.ipdPatientChartData
                                   ?.labels,
-                              ],
-                              thisYear: [
-                                ...patientsData[timePeriod]?.ipdPatientChartData
+                              ),
+                              thisYear: arr(
+                                patientsData[timePeriod]?.ipdPatientChartData
                                   ?.thisYear,
-                              ],
-                              lastYear: [
-                                ...patientsData[timePeriod]?.ipdPatientChartData
+                              ),
+                              lastYear: arr(
+                                patientsData[timePeriod]?.ipdPatientChartData
                                   ?.lastYear,
-                              ],
+                              ),
                             }}
                           />
                         </View>

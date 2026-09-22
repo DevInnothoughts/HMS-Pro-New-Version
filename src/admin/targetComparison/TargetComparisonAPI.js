@@ -11,7 +11,7 @@
 // ─────────────────────────────────────────────────────────────────────────────
 
 // Keep this in sync with the rest of the app's backend base.
-const BACKEND_URL = 'https://wedoc.in/hms';
+const BACKEND_URL = 'http://10.0.0.30:5100/hms';
 
 /* ------------------------- period → date range ------------------------- */
 const pad = n => String(n).padStart(2, '0');

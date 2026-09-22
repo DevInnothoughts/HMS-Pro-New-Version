@@ -14,7 +14,7 @@ import { PERIODS } from './TargetComparisonShared';
 
 // Same backend base the rest of the app uses (see ReportScreen.js).
 // TODO: lift into a shared config instead of duplicating per file.
-const BACKEND_URL = 'https://wedoc.in/hms';
+const BACKEND_URL = 'http://10.0.0.30:5100/hms';
 
 /* --------------------- period → date range --------------------- *
  * Backend wants explicit { from, to } (this-year). Fiscal year =

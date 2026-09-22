@@ -17,7 +17,7 @@ import { View, Text, StyleSheet, ScrollView } from 'react-native';
 import Icon from 'react-native-vector-icons/MaterialCommunityIcons';
 import { Modal, Portal, Button } from 'react-native-paper';
 
-export const BRAND = '#01458e';
+export const BRAND = '#4A6B2F';
 export const BRAND_LIGHT = '#8FB7CC';
 export const GREEN = '#1F9D57';
 export const AMBER = '#D98A2B';

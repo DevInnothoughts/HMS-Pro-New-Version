@@ -24,7 +24,7 @@ import RNFS from 'react-native-fs';
 import Share from 'react-native-share';
 import XLSX from 'xlsx-js-style';
 
-const BACKEND_URL = 'https://wedoc.in/hms';
+const BACKEND_URL = 'http://10.0.0.30:5100/hms';
 
 const fmt = n => `₹${Math.round(Number(n) || 0).toLocaleString('en-IN')}`;
 

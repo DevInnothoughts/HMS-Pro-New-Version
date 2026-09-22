@@ -20,7 +20,7 @@ import {
 } from 'react-native';
 
 // ─── Config ───────────────────────────────────────────────────────────────────
-const API_BASE = 'https://wedoc.in/hms';
+const API_BASE = 'http://10.0.0.30:5100/hms';
 const { width: SCREEN_W } = Dimensions.get('window');
 
 const formatDateIST = (date: Date): string => {
