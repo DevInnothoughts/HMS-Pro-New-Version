@@ -225,44 +225,14 @@ export const SECTIONS = [
       M('callsMissed', 'Missed', 'num', '/Dashboard missed + helpline_missed'),
     ],
     pages: [
-      // The prototype merges IVR and Helpline into one row. Both screens exist
-      // separately and neither has a combined view, so they stay two rows —
-      // merging would mean building a screen, which is out of scope this week.
-      {
-        name: 'IVR Calls',
-        desc: 'Answered, missed and callbacks',
-        icon: 'headset',
-        route: 'IVRCall',
-      },
+      // IVR, Web, Bot, Web Call and Aggregator leads are NOT listed here: each
+      // is a row in "Leads by source" on this section, and tapping the row
+      // opens its screen.
       {
         name: 'Helpline Calls',
         desc: 'Incoming and outgoing helpline log',
         icon: 'headset',
         route: 'HelplineCalls',
-      },
-      {
-        name: 'Web Leads',
-        desc: 'Enquiries from the website',
-        icon: 'globe',
-        route: 'WebLeads',
-      },
-      {
-        name: 'Bot Leads',
-        desc: 'Chatbot conversations captured',
-        icon: 'bot',
-        route: 'BotLeads',
-      },
-      {
-        name: 'Web Call Leads',
-        desc: 'Call-back requests from the website',
-        icon: 'headset',
-        route: 'WebCallLeads',
-      },
-      {
-        name: 'Aggregator Leads',
-        desc: 'Sulekha, Hexa and other partners',
-        icon: 'globe',
-        route: 'PartnerLeads',
       },
       {
         name: 'Calling Calendar',

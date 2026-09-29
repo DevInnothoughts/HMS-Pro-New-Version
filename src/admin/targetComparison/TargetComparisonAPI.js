@@ -11,7 +11,7 @@
 // ─────────────────────────────────────────────────────────────────────────────
 
 // Keep this in sync with the rest of the app's backend base.
-const BACKEND_URL = 'http://10.0.0.30:5100/hms';
+const BACKEND_URL = 'https://wedoc.in/hms';
 
 /* ------------------------- period → date range ------------------------- */
 const pad = n => String(n).padStart(2, '0');
@@ -74,6 +74,7 @@ const postJSON = async (path, body) => {
 
 // `role`/`subRole` come from redux (state.location) — the server uses them to
 // decide whether to include Optimistic targets.
+
 export const fetchComparisonBranches = (
   mode,
   period,
@@ -91,6 +92,18 @@ export const fetchComparisonBranches = (
   });
 };
 
+/**
+ * `range` — an optional explicit { from, to } that OVERRIDES mode/period.
+ *
+ * The home header passes the date filter's window straight through (see
+ * HomeHeader's targetWindow()). Every other caller still selects a whole
+ * fiscal month/quarter/year by index, so mode and period stay as the fallback
+ * rather than being replaced: if a caller hands in a malformed range we want
+ * this month, not FISCAL_MONTHS[undefined] → April.
+ *
+ * The same one-line override would work on fetchComparisonBranches if the
+ * branch list ever needs it. Not required today.
+ */
 export const fetchComparisonDetail = (
   branch,
   mode,
@@ -98,8 +111,13 @@ export const fetchComparisonDetail = (
   locations,
   role,
   subRole,
+  range,
 ) => {
-  const { from, to } = getRangeForSelection(mode, period);
+  const { from, to } =
+    range && range.from && range.to
+      ? range
+      : getRangeForSelection(mode, period);
+
   return postJSON('/targetComparisonNew/detail', {
     branch,
     locations,

@@ -20,6 +20,16 @@
 // NAMES are V4 only — it adds insurancecompany_name and tpa_name alongside the
 // raw ids. On a V3 payload those keys are simply absent and the insurer block
 // reads "Not recorded", so this file does not break if a caller is still on V3.
+//
+// INTERBRANCH (billsV5)
+// ─────────────────────
+// interbranch_role / patient_location come from V5. A labelled band names the
+// operating location on every interbranch invoice:
+//   'source'    — this branch's patient, operated at patient_location.
+//                 Counted here.
+//   'operating' — operated at THIS branch for patient_location's patient.
+//                 Listed but NOT counted here; the card is dimmed and tagged.
+// On a V4 payload the keys are absent and no band renders.
 // ─────────────────────────────────────────────────────────────────────────────
 
 import { StyleSheet, Text, View } from 'react-native';
@@ -71,6 +81,42 @@ const initials = name =>
     .join('')
     .toUpperCase();
 
+const IB = '#7A4FB0';
+
+// The interbranch band. `branch` is the location the screen is showing — on an
+// 'operating' row that IS the operating location, since patient_location there
+// holds the source branch.
+const InterbranchBand = ({ b, branch }) => {
+  const role = b.interbranch_role;
+  if (role !== 'operating' && role !== 'source') return null;
+  const other = b.patient_location || 'another branch';
+  const operatedAt = role === 'source' ? other : branch || 'this branch';
+
+  return (
+    <View style={s.ib}>
+      <View style={s.ibLine}>
+        <Icon name="swap-horiz" size={14} color={IB} />
+        <Text style={s.ibTag}>INTERBRANCH</Text>
+        {role === 'operating' && (
+          <View style={s.ibPill}>
+            <Text style={s.ibPillText}>NOT COUNTED HERE</Text>
+          </View>
+        )}
+      </View>
+      <Text style={s.ibText} numberOfLines={2}>
+        Operated at <Text style={s.ibStrong}>{operatedAt}</Text>
+        {role === 'operating' ? (
+          <>
+            {' · '}Source branch <Text style={s.ibStrong}>{other}</Text>
+          </>
+        ) : (
+          ' · Counted in this branch'
+        )}
+      </Text>
+    </View>
+  );
+};
+
 const Figure = ({ label, value, color, alert }) => (
   <View style={s.fig}>
     <Text style={s.figLabel}>{label}</Text>
@@ -87,16 +133,24 @@ const Figure = ({ label, value, color, alert }) => (
  * @param cashless show the Settled / TDS / Payable row
  * @param showType print the status on the meta line (parent screen only, where
  *                 the list mixes statuses)
+ * @param branch   the location being viewed — named as the operating location
+ *                 on an 'operating' interbranch row
  */
-export const IPDInvoiceRow = ({ b, hue, cashless, showType }) => {
+export const IPDInvoiceRow = ({ b, hue, cashless, showType, branch }) => {
   const due = n0(b.totaldue);
+  const excluded = b.interbranch_role === 'operating';
   const stay = stayDays(b.admission_date, b.discharge_date);
   const insurer = b.insurancecompany_name;
   const tpa = b.tpa_name;
 
   return (
-    <View style={s.row}>
-      <View style={[s.rowSpine, { backgroundColor: due > 0 ? T.crit : hue }]} />
+    <View style={[s.row, excluded && s.rowExcluded]}>
+      <View
+        style={[
+          s.rowSpine,
+          { backgroundColor: excluded ? IB : due > 0 ? T.crit : hue },
+        ]}
+      />
 
       <View style={s.rowHead}>
         <View style={[s.avatar, { backgroundColor: `${hue}18` }]}>
@@ -114,6 +168,8 @@ export const IPDInvoiceRow = ({ b, hue, cashless, showType }) => {
           </Text>
         </View>
       </View>
+      <InterbranchBand b={b} branch={branch} />
+
       {/* Admission and discharge get the same labelled treatment as the money
           below — a bare "28 Aug → 2 Sep" needs the reader to work out which is
           which, and the arrow reads as a state change rather than two facts. */}
@@ -162,7 +218,7 @@ export const IPDInvoiceRow = ({ b, hue, cashless, showType }) => {
         </View>
       )}
 
-      <View style={s.figures}>
+      <View style={[s.figures, excluded && s.figuresMuted]}>
         <Figure label="BILLED" value={inr(b.totalamt)} />
         <Figure label="DISCOUNT" value={inr(b.discount)} />
         <Figure label="COLLECTED" value={inr(b.collection)} color="#1E7A5A" />
@@ -170,7 +226,7 @@ export const IPDInvoiceRow = ({ b, hue, cashless, showType }) => {
       </View>
 
       {cashless && (
-        <View style={[s.figures, s.figuresSecond]}>
+        <View style={[s.figures, s.figuresSecond, excluded && s.figuresMuted]}>
           <Figure label="SETTLED" value={inr(b.receivedamt)} />
           <Figure label="TDS" value={inr(b.actualTDS)} />
           <Figure label="PAYABLE" value={inr(b.payable_amt)} />
@@ -197,6 +253,45 @@ const s = StyleSheet.create({
     marginTop: 9,
     overflow: 'hidden',
   },
+  // Listed for reference, not part of this branch's totals.
+  rowExcluded: { borderStyle: 'dashed', borderColor: `${IB}66` },
+  figuresMuted: { opacity: 0.5 },
+
+  ib: {
+    backgroundColor: `${IB}10`,
+    borderRadius: 7,
+    paddingVertical: 7,
+    paddingHorizontal: 9,
+    marginTop: 10,
+  },
+  ibLine: { flexDirection: 'row', alignItems: 'center', gap: 6 },
+  ibTag: {
+    fontFamily: F.mono,
+    fontSize: 8,
+    letterSpacing: 1,
+    color: IB,
+  },
+  ibPill: {
+    marginLeft: 'auto',
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 4,
+    backgroundColor: IB,
+  },
+  ibPillText: {
+    fontFamily: F.mono,
+    fontSize: 7,
+    letterSpacing: 0.8,
+    color: '#FFFFFF',
+  },
+  ibText: {
+    fontSize: 11.5,
+    color: T.text,
+    fontFamily: F.regular,
+    marginTop: 4,
+  },
+  ibStrong: { fontFamily: F.semibold },
+
   rowSpine: {
     position: 'absolute',
     left: 0,

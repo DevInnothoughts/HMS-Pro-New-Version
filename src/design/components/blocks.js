@@ -477,6 +477,77 @@ export const BreakdownList = ({
 };
 
 /**
+ * CountTable — one card, a label column plus N right-aligned count columns,
+ * and an optional bold total row. For figures that are all counts (no money),
+ * where a card per row would spend most of the screen on chrome.
+ *
+ *   columns  ['PRESCRIBED', 'TAKEN', …]
+ *   rows     [{ key, label, values: [{ v, tone? }] }]
+ *   foot     { label, values: [{ v, tone? }] }
+ */
+export const CountTable = ({ columns = [], rows = [], foot, note, hue }) => {
+  if (!rows.length) return null;
+  const toneColor = tone =>
+    tone === 'good'
+      ? '#1E7A5A'
+      : tone === 'warn'
+      ? '#B26A00'
+      : tone === 'bad'
+      ? T.crit
+      : T.text;
+
+  const Line = ({ label, values, head, total, last }) => (
+    <View
+      style={[
+        s.ctRow,
+        head && s.ctHead,
+        total && s.ctFoot,
+        last && !total && { borderBottomWidth: 0 },
+      ]}
+    >
+      <Text
+        style={[s.ctLabel, head && s.ctHeadText, total && s.ctFootLabel]}
+        numberOfLines={1}
+      >
+        {label}
+      </Text>
+      {values.map((x, i) => (
+        <Text
+          key={i}
+          style={[
+            s.ctVal,
+            head ? s.ctHeadText : { color: toneColor(x.tone) },
+            total && s.ctFootVal,
+          ]}
+          numberOfLines={1}
+          adjustsFontSizeToFit
+        >
+          {head ? x : x.v}
+        </Text>
+      ))}
+    </View>
+  );
+
+  return (
+    <View>
+      <View style={[s.ct, hue && { borderLeftColor: hue }]}>
+        <Line label="" values={columns} head />
+        {rows.map((r, i) => (
+          <Line
+            key={r.key}
+            label={r.label}
+            values={r.values}
+            last={i === rows.length - 1 && !foot}
+          />
+        ))}
+        {!!foot && <Line label={foot.label} values={foot.values} total />}
+      </View>
+      {!!note && <Text style={s.note}>{note}</Text>}
+    </View>
+  );
+};
+
+/**
  * A compact five-column funnel table: source, leads, booked, visited, IPD,
  * with conversion beneath each row.
  *
@@ -583,7 +654,96 @@ export const LeadsFunnel = ({
   );
 };
 
+/**
+ * Home's Leads card: one compact strip — total on top, then every source as
+ * a column of count over name. Five sources fit across 358px, so the whole
+ * card is two short rows instead of a table.
+ *
+ *   rows  [{ key, label, count, route?, params? }]
+ *   total string (already formatted)
+ */
+export const LeadSourceStrip = ({ rows = [], total, hue, onPressRow }) => (
+  <View style={s.ls}>
+    <View style={s.lsTop}>
+      <Text style={s.lsTopLabel}>TOTAL LEADS</Text>
+      <Text style={[s.lsTopVal, hue && { color: hue }]}>{total}</Text>
+    </View>
+    <View style={s.lsRow}>
+      {rows.map((r, i) => {
+        const tappable = !!(onPressRow && r.route);
+        const Wrapper = tappable ? TouchableOpacity : View;
+        return (
+          <Wrapper
+            key={r.key}
+            style={[s.lsCell, i > 0 && s.lsCellDivider]}
+            {...(tappable
+              ? {
+                  activeOpacity: 0.6,
+                  onPress: () => onPressRow(r),
+                  accessibilityRole: 'button',
+                  accessibilityLabel: `${r.label}, ${r.count} leads. Opens the list.`,
+                }
+              : {})}
+          >
+            <Text style={s.lsVal} numberOfLines={1} adjustsFontSizeToFit>
+              {r.count}
+            </Text>
+            <Text style={s.lsName} numberOfLines={1} adjustsFontSizeToFit>
+              {r.label}
+            </Text>
+          </Wrapper>
+        );
+      })}
+    </View>
+  </View>
+);
+
 const s = StyleSheet.create({
+  ls: {
+    backgroundColor: T.card,
+    borderWidth: 1,
+    borderColor: T.line,
+    borderRadius: 14,
+    overflow: 'hidden',
+  },
+  lsTop: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 13,
+    paddingVertical: 8,
+    backgroundColor: T.subtle,
+    borderBottomWidth: 1,
+    borderBottomColor: T.line,
+  },
+  lsTopLabel: {
+    fontFamily: F.mono,
+    fontSize: 8.5,
+    letterSpacing: 1,
+    color: T.muted,
+  },
+  lsTopVal: {
+    fontFamily: F.mono,
+    fontSize: 14,
+    color: T.text,
+    fontWeight: '600',
+  },
+  lsRow: { flexDirection: 'row' },
+  lsCell: {
+    flex: 1,
+    alignItems: 'center',
+    paddingVertical: 10,
+    paddingHorizontal: 3,
+  },
+  lsCellDivider: { borderLeftWidth: 1, borderLeftColor: T.lineSoft },
+  lsVal: { fontFamily: F.mono, fontSize: 16, color: T.text },
+  lsName: {
+    fontSize: 9.5,
+    color: T.muted,
+    marginTop: 3,
+    fontFamily: F.regular,
+  },
+
   gsplit: {
     flexDirection: 'row',
     height: 32,
@@ -855,6 +1015,51 @@ const s = StyleSheet.create({
     marginTop: 5,
     fontFamily: F.regular,
   },
+  ct: {
+    backgroundColor: T.card,
+    borderWidth: 1,
+    borderColor: T.line,
+    borderLeftWidth: 3,
+    borderRadius: 12,
+    overflow: 'hidden',
+  },
+  ctRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 9,
+    paddingHorizontal: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: T.lineSoft,
+  },
+  ctHead: { paddingVertical: 7, backgroundColor: T.subtle },
+  ctHeadText: {
+    fontFamily: F.mono,
+    fontSize: 7.5,
+    letterSpacing: 0.6,
+    color: T.muted2,
+  },
+  ctLabel: { flex: 1.3, fontSize: 12.5, fontFamily: F.medium, color: T.text },
+  ctVal: {
+    flex: 1,
+    textAlign: 'right',
+    fontFamily: F.mono,
+    fontSize: 14,
+    fontWeight: '600',
+  },
+  ctFoot: {
+    backgroundColor: T.subtle,
+    borderTopWidth: 1,
+    borderTopColor: T.line,
+    borderBottomWidth: 0,
+  },
+  ctFootLabel: {
+    fontFamily: F.mono,
+    fontSize: 9,
+    letterSpacing: 0.9,
+    color: T.muted,
+  },
+  ctFootVal: { fontWeight: '700' },
+
   bdCard: {
     backgroundColor: T.card,
     borderWidth: 1,
@@ -1037,5 +1242,7 @@ export default {
   RankedList,
   VisitTypeGrid,
   BreakdownList,
+  CountTable,
   LeadsFunnel,
+  LeadSourceStrip,
 };

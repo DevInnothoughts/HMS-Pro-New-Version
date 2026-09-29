@@ -3,11 +3,11 @@
 // src/design/components/HomeHeader.js
 // ─────────────────────────────────────────────────────────────────────────────
 // The dark header: menu · org + branch · live pill + scope chip ·
-// FOUR TARGET CARDS · compact approval pills.
+// THREE TARGET CARDS · compact approval pills (SuperAdmin only).
 //
-// ⚠️ WHOLE MONTH, WITH RUN RATES — THE 10-DAY BUCKETS ARE GONE
-// ────────────────────────────────────────────────────────────
-// Each card now reads like a run chase:
+// ⚠️ THE SELECTED WINDOW, WITH RUN RATES
+// ──────────────────────────────────────
+// Each card reads like a run chase:
 //
 //   CRR   current rate   = actual ÷ days elapsed          (per day so far)
 //   RRR   required rate  = (target − actual) ÷ days left  (per day from here)
@@ -21,20 +21,16 @@
 //
 // ⚠️ DAYS ELAPSED INCLUDES TODAY
 // ──────────────────────────────
-// A branch on the 1st has one day elapsed, not zero — otherwise CRR divides by
+// A branch on day one has one day elapsed, not zero — otherwise CRR divides by
 // zero. Today is a day being worked, and its figures are already in `thisYear`.
 //
-// ⚠️ ON THE LAST DAY THERE IS NO RRR
-// ──────────────────────────────────
-// daysLeft is 0, so the rate needed is undefined — what remains is simply the
-// gap, and NEED already says it. The card shows a dash rather than Infinity.
-//
-// ⚠️ LAST YEAR IS THE WHOLE OF LAST YEAR'S MONTH
-// ──────────────────────────────────────────────
-// `lastYear` from the API covers the full month, so comparing it against a
-// part-elapsed month would flatter last year. It is shown as its own daily
-// rate (lastYear ÷ days in month) beside CRR — rate against rate, which is the
-// only honest comparison mid-month.
+// ⚠️ LAST YEAR IS THE WHOLE OF THE SAME WINDOW LAST YEAR
+// ──────────────────────────────────────────────────────
+// `lastYear` from the API covers the full window (the server shifts the same
+// dates back a year), so comparing it against a part-elapsed window would
+// flatter last year. It is shown as its own daily rate (lastYear ÷ days in the
+// window) beside CRR — rate against rate, the only honest mid-period
+// comparison.
 //
 // ⚠️ NO RED
 // ─────────
@@ -42,8 +38,23 @@
 // states someone must act on today. Being behind on the 12th is information,
 // and colouring it red teaches people to ignore red.
 //
-// The cards ALWAYS cover the current month and ignore the scope chip, because
-// targets are monthly.
+// ⚠️ THE CARDS FOLLOW THE SCOPE CHIP — VIA targetWindow(), NOT scope.to
+// ────────────────────────────────────────────────────────────────────
+// Targets are stored yearly and the server prorates them to whatever window is
+// sent (targetComparisonNewModel: monthsInRange → targetsForPeriod, yearly ×
+// months/12), so "Last 7 Days" gets a real derived target rather than the month
+// target relabelled.
+//
+// But the scope filter is a REPORTING window — every preset ends at today,
+// because actuals only exist up to today. A chase needs the full TARGET period.
+// Sending scope.to straight through makes every preset look finished and kills
+// RRR everywhere. targetWindow() is what keeps This Month and This F.Y. live.
+//
+// ⚠️ A CLOSED WINDOW HAS NO RRR
+// ─────────────────────────────
+// Yesterday, the rolling 7/30-day windows and any custom range already ended
+// have zero days left. The card drops RRR and reports the RESULT — OVER or
+// SHORT by however much.
 // ─────────────────────────────────────────────────────────────────────────────
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
@@ -65,18 +76,98 @@ import {
   fetchComparisonDetail,
 } from '../../admin/targetComparison/TargetComparisonAPI';
 import { setLocation } from '../../store/locationSlice';
-import { scopeLabel } from '../../store/scopeSlice';
+import { scopeLabel, todayIST } from '../../store/scopeSlice';
+// Role resolution is imported, never re-implemented. recruitment/roles.js spells
+// out why: a second copy of "what role is this person" is how the frontend and
+// backend drift apart, and it has already cost this codebase once.
+import { resolveTicketRole, TICKET_ROLE } from '../../ticketing/roles';
 import ScopePicker from './ScopePicker';
 import { F, T } from '../tokens';
 
-/* ── the month ────────────────────────────────────────────────────────────── */
+/* ── the window ───────────────────────────────────────────────────────────── */
 
-const monthProgress = (now = new Date()) => {
-  const total = new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate();
-  // Today counts as elapsed — it is being worked, and its figures are already
-  // in `thisYear`. Without this the 1st divides by zero.
-  const elapsed = now.getDate();
-  return { total, elapsed, left: Math.max(0, total - elapsed) };
+// Inclusive day count between two YYYY-MM-DD strings. Both ends count: a range
+// of 2026-09-01 → 2026-09-01 is one day, not zero.
+const daysBetween = (a, b) =>
+  Math.floor(
+    (Date.parse(`${b}T00:00:00Z`) - Date.parse(`${a}T00:00:00Z`)) / 86400000,
+  ) + 1;
+
+/**
+ * The window the TARGET covers, derived from the scope preset.
+ *
+ * scopeSlice.rangeFor() ends EVERY preset at today, including 'month' and 'FY',
+ * because actuals only exist up to today. That is right for a report and wrong
+ * for a chase: the month target is for the whole month, and "days left" means
+ * what is left of the month, not zero. Passing scope.to through unchanged makes
+ * every preset closed and removes RRR from the screen entirely.
+ *
+ *   month / FY        → extended to month-end / 31 March   (live chase)
+ *   Today / Yesterday → that day                           (closed, correctly)
+ *   7 / 30            → the rolling window                 (closed, correctly)
+ *   Custom            → exactly as given
+ *
+ * Extending `to` into the future does NOT change the actuals — there are no
+ * rows past today — and it makes `lastYear` the whole of the same period last
+ * year, which is what the rate-against-rate comparison assumes.
+ */
+const targetWindow = scope => {
+  const { preset, from, to } = scope || {};
+  if (!from || !to) return { from, to };
+
+  if (preset === 'month') {
+    const d = new Date(`${from}T00:00:00Z`);
+    if (isNaN(d.getTime())) return { from, to };
+    const end = new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth() + 1, 0));
+    return { from, to: end.toISOString().slice(0, 10) };
+  }
+
+  if (preset === 'FY') {
+    // rangeFor('FY') builds `from` as `${fyYear}-04-01`, so the FY ends on the
+    // following 31 March.
+    const fyYear = Number(from.slice(0, 4));
+    return Number.isFinite(fyYear)
+      ? { from, to: `${fyYear + 1}-03-31` }
+      : { from, to };
+  }
+
+  return { from, to };
+};
+
+/**
+ * How far through the target window we are.
+ *
+ * Replaces monthProgress(), which assumed the window was always the current
+ * calendar month. Three cases, and the closed one is the reason this is not a
+ * two-line function:
+ *
+ *   FUTURE   today < from   elapsed 0      — nothing managed yet, so no CRR
+ *   OPEN     from ≤ today < to             — a live chase
+ *   CLOSED   today ≥ to     elapsed = total, left = 0
+ *
+ * CLOSED has no days left to spread the gap over, so RRR is undefined and the
+ * card shows the RESULT instead: what the period finished over or short by.
+ * `expected` collapses to the full target and `variance` to actual − target,
+ * which is exactly right for a finished period.
+ *
+ * Dates are compared as strings: YYYY-MM-DD sorts lexicographically, so this
+ * needs no Date objects and no timezone handling beyond todayIST().
+ */
+const rangeProgress = (from, to, today = todayIST()) => {
+  if (!from || !to) return { total: 0, elapsed: 0, left: 0, closed: true };
+
+  const total = daysBetween(from, to);
+  if (!Number.isFinite(total) || total <= 0) {
+    return { total: 0, elapsed: 0, left: 0, closed: true };
+  }
+
+  if (today < from) return { total, elapsed: 0, left: total, closed: false };
+  if (today >= to) return { total, elapsed: total, left: 0, closed: true };
+
+  // Today counts as elapsed — it is being worked and its figures are already
+  // in `thisYear`. Same rule as before, now anchored to the window start.
+  const elapsed = Math.min(total, Math.max(1, daysBetween(from, today)));
+  return { total, elapsed, left: total - elapsed, closed: false };
 };
 
 /* ── formatting ───────────────────────────────────────────────────────────── */
@@ -149,7 +240,12 @@ const varianceColor = (variance, expected) => {
 
 /* ── header ───────────────────────────────────────────────────────────────── */
 
-export const HomeHeader = ({ onMenu, approvals, onApprovals, navigation }) => {
+export const HomeHeader = ({
+  onMenu,
+  approvals = {},
+  onApprovals,
+  navigation,
+}) => {
   const dispatch = useDispatch();
   const location = useSelector(s => s.location.value);
   const locationArray = useSelector(s => s.location.locationArray);
@@ -163,13 +259,35 @@ export const HomeHeader = ({ onMenu, approvals, onApprovals, navigation }) => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
 
+  // The date filter drives both the request and the chase. targetWindow() turns
+  // the reporting window into the target's own period — see its note. The cards
+  // used to pin themselves to the calendar month and ignore the chip entirely,
+  // while the body of HomeScreen followed it, so the two halves of one screen
+  // could describe different periods.
+  const tw = useMemo(() => targetWindow(scope), [scope]);
+  const { from, to } = tw;
+
+  const win = useMemo(() => rangeProgress(from, to), [from, to]);
+
   const canSwitchBranch =
     Array.isArray(locationArray) && locationArray.length > 1;
+
+  // Daily sign-off is management oversight: who has and hasn't signed off each
+  // branch. A Partner or Cluster Head signs their own branch on ApprovalScreen
+  // and has no business reading the group's compliance board from the home
+  // screen. HomeScreen already gated the TAP (onApprovals is null for everyone
+  // else) but still rendered the row disabled, so the counts were on display to
+  // every role — which is the bug this fixes.
+  const isSuperAdmin =
+    resolveTicketRole(role, subRole) === TICKET_ROLE.SUPER_ADMIN;
+
+  // Fallback only — the explicit range below is what actually drives the
+  // request. Kept because getRangeForSelection(undefined, undefined) resolves
+  // to April, which is a far worse default than this month.
   const period = currentMonthPeriodIndex();
-  const month = useMemo(() => monthProgress(), []);
 
   const load = useCallback(async () => {
-    if (!location) return;
+    if (!location || !from || !to) return;
     setLoading(true);
     setError('');
     try {
@@ -180,6 +298,7 @@ export const HomeHeader = ({ onMenu, approvals, onApprovals, navigation }) => {
         [location],
         role,
         subRole,
+        { from, to },
       );
       setRows(res?.params || []);
       setOptimistic(!!res?.meta?.showOptimistic);
@@ -189,7 +308,7 @@ export const HomeHeader = ({ onMenu, approvals, onApprovals, navigation }) => {
     } finally {
       setLoading(false);
     }
-  }, [location, period, role, subRole]);
+  }, [location, from, to, period, role, subRole]);
 
   useEffect(() => {
     load();
@@ -198,9 +317,10 @@ export const HomeHeader = ({ onMenu, approvals, onApprovals, navigation }) => {
   /**
    * One card's chase.
    *
-   * Everything is WHOLE MONTH: the target is the month's target, `thisYear` is
-   * month-to-date actual, `lastYear` is the whole of last year's month. Only
-   * the rates make them comparable mid-month.
+   * Everything is THE SELECTED WINDOW: `target` is that window's prorated
+   * target, `thisYear` is the actual so far inside it, `lastYear` is the whole
+   * of the same window one year back. Only the rates make them comparable
+   * before the window closes.
    */
   const card = useCallback(
     (key, money) => {
@@ -216,23 +336,22 @@ export const HomeHeader = ({ onMenu, approvals, onApprovals, navigation }) => {
         money,
         actual,
         target: targetN,
+        // Whether the window has already ended. Drives OVER / SHORT vs LEFT on
+        // the card, and the bar colour.
+        closed: win.closed,
         // Rate achieved so far.
-        crr:
-          actual != null && month.elapsed > 0 ? actual / month.elapsed : null,
-        // Rate needed from here. Null on the last day — no days left to spread
-        // it over, and NEED already says what remains.
-        rrr:
-          need != null && month.left > 0
-            ? Math.max(0, need) / month.left
-            : null,
+        crr: actual != null && win.elapsed > 0 ? actual / win.elapsed : null,
+        // Rate needed from here. Null once the window closes — no days left to
+        // spread it over, and NEED already says what remains.
+        rrr: need != null && win.left > 0 ? Math.max(0, need) / win.left : null,
         need,
-        // What the monthly target says should be on the board by tonight.
-        // Days elapsed INCLUDES today — today is being worked and its figures
-        // are already in `actual`, so measuring against yesterday's
-        // expectation would flatter every branch by a day.
+        // What the target says should be on the board by tonight. Days elapsed
+        // INCLUDES today — today is being worked and its figures are already in
+        // `actual`, so measuring against yesterday's expectation would flatter
+        // every branch by a day.
         expected:
-          targetN != null && month.total > 0
-            ? (targetN / month.total) * month.elapsed
+          targetN != null && win.total > 0
+            ? (targetN / win.total) * win.elapsed
             : null,
         // The gap against that expectation. Positive is ahead of pace.
         //
@@ -240,23 +359,40 @@ export const HomeHeader = ({ onMenu, approvals, onApprovals, navigation }) => {
         // month-end is heavier — so a branch can trail on the 10th and finish
         // ahead. A pace indicator, not a verdict.
         variance:
-          targetN != null && actual != null && month.total > 0
-            ? actual - (targetN / month.total) * month.elapsed
+          targetN != null && actual != null && win.total > 0
+            ? actual - (targetN / win.total) * win.elapsed
             : null,
         // Last year as ITS OWN daily rate, so it compares with CRR rather than
-        // with a part-elapsed month.
+        // with a part-elapsed window.
         lyRate:
-          lastYearN != null && month.total > 0 ? lastYearN / month.total : null,
+          lastYearN != null && win.total > 0 ? lastYearN / win.total : null,
         pct: targetN > 0 && actual != null ? (actual / targetN) * 100 : null,
       };
     },
-    [rows, optimistic, month],
+    [rows, optimistic, win],
   );
 
   const total = card('total', true);
   const newPat = card('newPatients', false);
   const sx = card('sx', false);
 
+  // Revenue per new patient, from the SAME two figures the cards show — the
+  // REVENUE card's actual ÷ the NEW PATIENTS card's actual — so the three can
+  // never disagree. Same window as the cards (targetWindow). '-' when there
+  // are no new patients (never a divide by zero); '—' while loading or when
+  // either figure is missing.
+  const revPerNew =
+    loading || error || total.actual == null || newPat.actual == null
+      ? '—'
+      : newPat.actual > 0
+      ? fmtCompact(total.actual / newPat.actual)
+      : '-';
+
+  // NOTE: BranchTargetDetailScreen rebuilds its own range from mode/period —
+  // it does not read fromDate/toDate and does not use useScopeRange. So this
+  // opens on the calendar month regardless of the chip. Giving that screen the
+  // same explicit-range argument is a separate change; passing dates it ignores
+  // would only look like a handover that isn't happening.
   const openTargets = () =>
     navigation?.navigate?.('BranchTargetDetail', {
       branchId: location,
@@ -322,11 +458,26 @@ export const HomeHeader = ({ onMenu, approvals, onApprovals, navigation }) => {
       {/* ── Target cards ── */}
       <View style={s.targetHead}>
         <View>
-          <Text style={s.targetLabel}>MONTH TARGET</Text>
-          {/* The overs remaining, effectively — the number every rate below
-              depends on. */}
+          <Text style={s.targetLabel}>TARGET</Text>
           <Text style={s.targetSub}>
-            day {month.elapsed} of {month.total} · {month.left} left
+            {win.total === 0
+              ? '—'
+              : win.elapsed === 0
+              ? `starts ${from}`
+              : win.closed
+              ? `${win.total} day${win.total === 1 ? '' : 's'} · complete`
+              : `day ${win.elapsed} of ${win.total} · ${win.left} left`}
+          </Text>
+        </View>
+        {/* Revenue per new patient — see revPerNew above. */}
+        <View
+          style={s.rpn}
+          accessible
+          accessibilityLabel={`Revenue per new patient ${revPerNew}`}
+        >
+          <Text style={s.rpnLabel}>REV / NEW PT</Text>
+          <Text style={s.rpnVal} numberOfLines={1} adjustsFontSizeToFit>
+            {revPerNew}
           </Text>
         </View>
         <TouchableOpacity
@@ -361,23 +512,25 @@ export const HomeHeader = ({ onMenu, approvals, onApprovals, navigation }) => {
         </View>
       )}
 
-      {/* ── Approvals — one compact line ── */}
-      <TouchableOpacity
-        disabled={!onApprovals}
-        onPress={onApprovals || undefined}
-        activeOpacity={0.85}
-        style={s.apprRow}
-        accessibilityRole={onApprovals ? 'button' : 'text'}
-        accessibilityLabel={`Partner ${approvals.partner}, Cluster head ${approvals.clusterHead}`}
-      >
-        <Icon name="assignment-turned-in" size={13} color={T.apprLabel} />
-        <Pip label="Partner" value={approvals.partner} />
-        <View style={s.apprDiv} />
-        <Pip label="Cluster head" value={approvals.clusterHead} />
-        {!!onApprovals && (
-          <Icon name="chevron-right" size={16} color={T.apprLabel} />
-        )}
-      </TouchableOpacity>
+      {/* ── Approvals — one compact line, SuperAdmin only ── */}
+      {isSuperAdmin && (
+        <TouchableOpacity
+          disabled={!onApprovals}
+          onPress={onApprovals || undefined}
+          activeOpacity={0.85}
+          style={s.apprRow}
+          accessibilityRole={onApprovals ? 'button' : 'text'}
+          accessibilityLabel={`Partner ${approvals.partner}, Cluster head ${approvals.clusterHead}`}
+        >
+          <Icon name="assignment-turned-in" size={13} color={T.apprLabel} />
+          <Pip label="Partner" value={approvals.partner} />
+          <View style={s.apprDiv} />
+          <Pip label="Cluster head" value={approvals.clusterHead} />
+          {!!onApprovals && (
+            <Icon name="chevron-right" size={16} color={T.apprLabel} />
+          )}
+        </TouchableOpacity>
+      )}
 
       <PickerSheet
         visible={picker === 'branch'}
@@ -406,16 +559,17 @@ export const HomeHeader = ({ onMenu, approvals, onApprovals, navigation }) => {
 
 /* ── bits ─────────────────────────────────────────────────────────────────── */
 
-const Rate = ({ label, value, color }) => (
-  <View style={s.rate}>
-    <Text style={s.rateLabel}>{label}</Text>
-    <Text style={[s.rateVal, color && { color }]}>{value}</Text>
-  </View>
-);
-
 const TCard = ({ label, c, onPress }) => {
-  const hue = paceColor(c.crr, c.rrr);
   const done = c.need != null && c.need <= 0;
+  // No target configured → nothing to be short of. Without the null check this
+  // paints an un-targeted metric amber and labels it SHORT on any closed window.
+  const missed = !done && c.closed && c.need != null;
+
+  // paceColor returns NEUTRAL when rrr is null, which is right for a live
+  // window with nothing to chase but wrong for a finished one — a window that
+  // closed on target should read AHEAD, one that closed short should read
+  // amber. Never red: see the file header.
+  const hue = done ? AHEAD : missed ? BEHIND : paceColor(c.crr, c.rrr);
   const vHue = varianceColor(c.variance, c.expected);
   const ahead = c.variance != null && c.variance >= 0;
 
@@ -435,12 +589,17 @@ const TCard = ({ label, c, onPress }) => {
             )}. `) +
         (done
           ? 'Target met.'
+          : missed
+          ? `Finished ${fmt(Math.abs(c.need), c.money)} short.`
+          : c.need == null
+          ? 'No target set.'
           : `Needs ${fmt(c.need, c.money)} at ${fmtRate(
               c.rrr,
               c.money,
             )} a day.`)
       }
     >
+      {/* 1 — label + achieved/target */}
       <View style={s.cardTop}>
         <Text style={s.cardLabel} numberOfLines={1}>
           {label}
@@ -451,22 +610,7 @@ const TCard = ({ label, c, onPress }) => {
         </Text>
       </View>
 
-      {/* Directly under the achieved/target pair it qualifies — the gap
-          against where today's pro-rata target says the branch should be. */}
-      {c.variance != null && (
-        <View style={s.varRow}>
-          <Icon
-            name={ahead ? 'arrow-upward' : 'arrow-downward'}
-            size={11}
-            color={vHue}
-          />
-          <Text style={[s.varVal, { color: vHue }]}>
-            {fmt(Math.abs(c.variance), c.money)}
-          </Text>
-          <Text style={s.varNote}>of target</Text>
-        </View>
-      )}
-
+      {/* 2 — progress */}
       <View style={s.track}>
         <View
           style={{
@@ -478,8 +622,8 @@ const TCard = ({ label, c, onPress }) => {
         />
       </View>
 
-      {/* The chase on one line. NEED is a TOTAL, not a rate — the gap ÷ days
-          left is RRR, so a per-day NEED would just repeat it. */}
+      {/* 3 — the chase. NEED is a TOTAL, not a rate — the gap ÷ days left is
+          RRR, so a per-day NEED would just repeat it. */}
       <View style={s.rates}>
         <Text style={s.rateItem} numberOfLines={1}>
           <Text style={s.rateLabel}>CRR </Text>
@@ -487,27 +631,60 @@ const TCard = ({ label, c, onPress }) => {
           <Text style={s.rateUnit}>/day</Text>
         </Text>
 
+        {/* The /day suffix is tied to rrr being a real number, not to `done`.
+            A closed window that missed its target has done === false and rrr
+            === null, which used to render "RRR —/day". */}
         <Text style={[s.rateItem, { color: hue }]} numberOfLines={1}>
           <Text style={s.rateLabel}>RRR </Text>
-          {done ? '—' : fmtRate(c.rrr, c.money)}
-          {!done && <Text style={s.rateUnit}>/day</Text>}
+          {done || c.rrr == null ? '—' : fmtRate(c.rrr, c.money)}
+          {!done && c.rrr != null && <Text style={s.rateUnit}>/day</Text>}
         </Text>
 
         <Text
           style={[s.rateItem, s.rateLast, { color: done ? AHEAD : hue }]}
           numberOfLines={1}
         >
-          <Text style={s.rateLabel}>{done ? 'OVER ' : 'LEFT '}</Text>
+          <Text style={s.rateLabel}>
+            {done ? 'OVER ' : missed ? 'SHORT ' : 'LEFT '}
+          </Text>
           {c.need == null ? '—' : fmt(Math.abs(c.need), c.money)}
         </Text>
       </View>
 
-      {/* Last year's own daily rate, tucked onto the same line as LEFT rather
-          than taking a row of its own. */}
-      {c.lyRate != null && (
-        <Text style={s.cardLy} numberOfLines={1}>
-          last year {fmtRate(c.lyRate, c.money)}/day
-        </Text>
+      {/* 4 — the two qualifiers on ONE line. Both are context for the figures
+          above rather than figures in their own right, and giving each a row
+          was what forced them down to 8.5pt to keep the card short. Together
+          on one line they fit at 11–12pt, which is the whole point of the
+          change. Left-aligned now: the variance no longer sits under the
+          achieved/target pair, so right-aligning it would strand it. */}
+      {(c.variance != null || c.lyRate != null) && (
+        <View style={s.foot}>
+          {c.variance != null && (
+            <>
+              <Icon
+                name={ahead ? 'arrow-upward' : 'arrow-downward'}
+                size={12}
+                color={vHue}
+              />
+              <Text style={[s.varVal, { color: vHue }]} numberOfLines={1}>
+                {fmt(Math.abs(c.variance), c.money)}
+              </Text>
+              <Text style={s.varNote} numberOfLines={1}>
+                of target
+              </Text>
+            </>
+          )}
+
+          {c.variance != null && c.lyRate != null && (
+            <Text style={s.footDot}>·</Text>
+          )}
+
+          {c.lyRate != null && (
+            <Text style={s.cardLy} numberOfLines={1}>
+              last year {fmtRate(c.lyRate, c.money)}/day
+            </Text>
+          )}
+        </View>
       )}
     </TouchableOpacity>
   );
@@ -659,6 +836,34 @@ const s = StyleSheet.create({
     color: 'rgba(159,203,182,0.75)',
     marginTop: 3,
   },
+  // Revenue per new patient — the one figure in this row meant to be read
+  // first, so it gets a gold highlight pill and the largest type in the row.
+  rpn: {
+    alignItems: 'center',
+    alignSelf: 'center',
+    marginHorizontal: 8,
+    paddingHorizontal: 14,
+    paddingVertical: 5,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: 'rgba(255,200,87,0.55)',
+    backgroundColor: 'rgba(255,200,87,0.14)',
+    maxWidth: '46%',
+  },
+  rpnLabel: {
+    fontFamily: F.mono,
+    fontSize: 8,
+    letterSpacing: 1.1,
+    color: '#FFE3A3',
+  },
+  rpnVal: {
+    fontFamily: F.mono,
+    fontSize: 22,
+    fontWeight: '700',
+    color: '#FFC857',
+    letterSpacing: -0.5,
+    marginTop: 1,
+  },
   openBtn: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -690,13 +895,14 @@ const s = StyleSheet.create({
 
   // One card per row: three rates need the full width to stay legible, and a
   // 2-up grid put CRR/RRR/NEED into 45px columns.
-  grid: { gap: 7 },
+  grid: { gap: 6 },
+
   card: {
     backgroundColor: T.headerTile,
     borderWidth: 1,
     borderColor: T.headerTileLine,
     borderRadius: 11,
-    paddingVertical: 10,
+    paddingVertical: 9,
     paddingHorizontal: 12,
   },
   cardTop: {
@@ -707,34 +913,64 @@ const s = StyleSheet.create({
   },
   cardLabel: {
     fontFamily: F.mono,
-    fontSize: 8.5,
-    letterSpacing: 1,
+    fontSize: 11,
+    letterSpacing: 0.6,
     color: T.headerMuted,
+    flexShrink: 1,
   },
   cardVal: {
     fontFamily: F.mono,
-    fontSize: 15,
+    fontSize: 17,
     color: '#fff',
     letterSpacing: -0.3,
   },
-  cardOf: { fontSize: 11, color: T.headerMuted },
+  cardOf: { fontSize: 12, color: T.headerMuted },
+
   track: {
-    height: 3,
+    height: 4,
     borderRadius: 2,
     backgroundColor: 'rgba(255,255,255,0.12)',
-    marginTop: 8,
+    marginTop: 7,
     overflow: 'hidden',
   },
-  rates: { flexDirection: 'row', gap: 10, marginTop: 8 },
-  rateItem: { flex: 1, fontFamily: F.mono, fontSize: 11, color: '#fff' },
+
+  rates: { flexDirection: 'row', gap: 8, marginTop: 7 },
+  rateItem: { flex: 1, fontFamily: F.mono, fontSize: 13, color: '#fff' },
   rateLast: { flex: 0.9, textAlign: 'right' },
-  rateLabel: { fontSize: 8, letterSpacing: 0.8, color: T.headerMuted },
-  rateUnit: { fontSize: 8.5, color: T.headerMuted },
+  rateLabel: { fontSize: 10.5, letterSpacing: 0.5, color: T.headerMuted },
+  rateUnit: { fontSize: 10.5, color: T.headerMuted },
+
+  // Variance + last year on one line. Replaced the old `varRow`/`cardLy` pair
+  // of rows, which is what freed the height to raise every size in the card.
+  foot: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    marginTop: 6,
+  },
+  varVal: {
+    fontFamily: F.mono,
+    fontSize: 12,
+    letterSpacing: -0.2,
+    flexShrink: 0,
+  },
+  varNote: {
+    fontFamily: F.mono,
+    fontSize: 11,
+    color: T.headerMuted,
+    flexShrink: 1,
+  },
+  footDot: {
+    fontFamily: F.mono,
+    fontSize: 11,
+    color: T.headerMuted,
+    opacity: 0.6,
+  },
   cardLy: {
     fontFamily: F.mono,
-    fontSize: 8.5,
+    fontSize: 11,
     color: T.headerMuted,
-    marginTop: 6,
+    flexShrink: 1,
   },
 
   apprRow: {
@@ -784,15 +1020,4 @@ const s = StyleSheet.create({
     borderBottomColor: T.lineSoft,
   },
   sheetLabel: { fontFamily: F.regular, fontSize: 14, color: T.text },
-  varRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 4,
-    // Right-aligned so it sits under the achieved/target figure rather than
-    // under the label on the far side of the card.
-    justifyContent: 'flex-end',
-    marginTop: 5,
-  },
-  varVal: { fontFamily: F.mono, fontSize: 11.5, letterSpacing: -0.2 },
-  varNote: { fontFamily: F.mono, fontSize: 8.5, color: T.headerMuted },
 });

@@ -34,8 +34,6 @@ import {
   Alert,
   FlatList,
   Linking,
-  Modal,
-  Pressable,
   RefreshControl,
   ScrollView,
   StyleSheet,
@@ -48,7 +46,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import Icon from 'react-native-vector-icons/MaterialIcons';
 import { useSelector } from 'react-redux';
 
-import { get, post } from '../api/client';
+import { get } from '../api/client';
 import SectionHeader from '../design/components/SectionHeader';
 import { useScopeRange } from '../scope/useScopeRange';
 import { F, HUE, T, num } from '../design/tokens';
@@ -131,15 +129,6 @@ const fmtDate = d => {
   }`;
 };
 
-const initials = name =>
-  String(name || '?')
-    .trim()
-    .split(/\s+/)
-    .slice(0, 2)
-    .map(w => w[0])
-    .join('')
-    .toUpperCase();
-
 const LeadsListScreen = ({ navigation, route }) => {
   const sourceKey = route?.params?.source || 'web';
   const cfg = LEAD_SOURCES[sourceKey] || LEAD_SOURCES.web;
@@ -154,9 +143,6 @@ const LeadsListScreen = ({ navigation, route }) => {
   const [error, setError] = useState('');
   const [query, setQuery] = useState('');
   const [filter, setFilter] = useState('');
-  const [sheet, setSheet] = useState(null); // { lead, status }
-  const [note, setNote] = useState('');
-  const [saving, setSaving] = useState(false);
 
   const load = useCallback(
     async (quiet = false) => {
@@ -251,34 +237,6 @@ const LeadsListScreen = ({ navigation, route }) => {
         'WhatsApp does not appear to be installed.',
       ),
     );
-  };
-
-  const save = async () => {
-    if (!sheet || saving) return;
-    setSaving(true);
-    try {
-      await post(
-        `${cfg.updateStatus}?id=${encodeURIComponent(
-          sheet.lead.appointment_id,
-        )}`,
-        { status: sheet.status, note: note.trim() || null },
-      );
-      // Patched locally rather than refetched: this is a queue people work
-      // down, and a reload would scroll them back to the top.
-      setData(d => ({
-        ...d,
-        leads: (d.leads || []).map(r =>
-          r.appointment_id === sheet.lead.appointment_id
-            ? { ...r, status: sheet.status, note: note.trim() || null }
-            : r,
-        ),
-      }));
-      setSheet(null);
-    } catch (e) {
-      Alert.alert('Could not save', e.message);
-    } finally {
-      setSaving(false);
-    }
   };
 
   const header = (
@@ -437,21 +395,8 @@ const LeadsListScreen = ({ navigation, route }) => {
             ipd={sets.ipd.has(key10(item.phoneno))}
             onCall={() => call(item.phoneno)}
             onWhatsapp={() => whatsapp(item.phoneno)}
-            onStatus={s => {
-              setSheet({ lead: item, status: s });
-              setNote(item.note || '');
-            }}
           />
         )}
-      />
-
-      <StatusSheet
-        sheet={sheet}
-        note={note}
-        setNote={setNote}
-        saving={saving}
-        onSave={save}
-        onClose={() => setSheet(null)}
       />
     </SafeAreaView>
   );
@@ -469,167 +414,136 @@ const Stat = ({ label, value, note, color }) => (
   </View>
 );
 
-const Tag = ({ label, color }) => (
-  <View style={[st.tag, { borderColor: color }]}>
-    <Text style={[st.tagText, { color }]}>{label}</Text>
+const Tag = ({ label, color, solid }) => (
+  <View
+    style={[
+      st.tag,
+      { borderColor: color },
+      solid && { backgroundColor: '#fff' },
+    ]}
+  >
+    <Text style={[st.tagText, { color }]} numberOfLines={1}>
+      {label}
+    </Text>
   </View>
 );
 
-const LeadCard = ({ r, visited, ipd, onCall, onWhatsapp, onStatus }) => {
+// Same whole-card colours as the old WebLeads.js / BotLeads.js: green for
+// Appointment, amber for Enquiry, plain white for everything else.
+const CARD_BG = { Appointment: '#66BB6A', Enquiry: '#FFB300' };
+
+/**
+ * Compact lead card. Everything that used to take its own row is folded in:
+ *   line 1  name + status badge              [call] [whatsapp]
+ *   line 2  phone · date
+ *   line 3  tags — disease, city, area, Visited, IPD (only if any)
+ *   line 4  message / note, one line each; tap the card to read them in full
+ * The Call / WhatsApp buttons sit beside the name instead of in a footer row.
+ */
+const LeadCard = ({ r, visited, ipd, onCall, onWhatsapp }) => {
+  const [open, setOpen] = useState(false);
   const meta = statusMeta(r.status);
+  const hl = CARD_BG[r.status];
+  // On a coloured card the pale tints and grey text wash out, so the small
+  // chips go white and the secondary text goes dark.
+  const chipBg = hl ? '#fff' : `${meta.color}18`;
+  const subColor = hl ? T.text : T.muted2;
+
+  // No name → the number is the title, and isn't repeated underneath.
+  const title = r.name || r.phoneno || 'No number';
+  const subParts = [r.name ? r.phoneno || 'No number' : null, fmtDate(r.date)];
+  const sub = subParts.filter(Boolean).join('  ·  ');
+
+  const hasTags = !!(r.disease || r.city || r.selected_area || visited || ipd);
+  const hasText = !!(r.message || r.note);
+  const lines = open ? undefined : 1;
 
   return (
-    <View style={st.row}>
+    <TouchableOpacity
+      activeOpacity={0.85}
+      disabled={!hasText}
+      onPress={() => setOpen(o => !o)}
+      style={[st.row, hl && { backgroundColor: hl, borderColor: hl }]}
+      accessibilityHint={hasText ? 'Shows the full message' : undefined}
+    >
       <View style={[st.rowSpine, { backgroundColor: meta.color }]} />
 
       <View style={st.rowHead}>
-        <View style={[st.avatar, { backgroundColor: `${meta.color}18` }]}>
-          <Text style={[st.avatarText, { color: meta.color }]}>
-            {initials(r.name || r.phoneno)}
-          </Text>
-        </View>
-
         <View style={{ flex: 1, minWidth: 0 }}>
-          {/* Web and bot forms both capture a name, but not always — the phone
-              is the fallback identity, as on the call-lead screens. */}
-          <Text style={st.name} numberOfLines={1}>
-            {r.name || 'Name not given'}
+          <View style={st.titleLine}>
+            <Text style={st.name} numberOfLines={1}>
+              {title}
+            </Text>
+            <View style={[st.badge, { backgroundColor: chipBg }]}>
+              <Icon name={meta.icon} size={10} color={meta.color} />
+              <Text style={[st.badgeText, { color: meta.color }]}>
+                {meta.label}
+              </Text>
+            </View>
+          </View>
+          <Text style={[st.sub, { color: subColor }]} numberOfLines={1}>
+            {sub}
           </Text>
-          <Text style={st.phone}>{r.phoneno || 'No number'}</Text>
         </View>
 
-        <View style={[st.badge, { backgroundColor: `${meta.color}18` }]}>
-          <Icon name={meta.icon} size={12} color={meta.color} />
-          <Text style={[st.badgeText, { color: meta.color }]}>
-            {meta.label}
-          </Text>
-        </View>
-      </View>
-
-      <Text style={st.meta} numberOfLines={1}>
-        {fmtDate(r.date)}
-        {r.selected_area ? ` · ${r.selected_area}` : ''}
-      </Text>
-
-      {/* Conversion state was a colour on the whole card before — green for
-          appointment, amber for enquiry — which made the card hard to read and
-          could only show one thing at a time. Tags stack. */}
-      {(visited || ipd || r.disease || r.city) && (
-        <View style={st.tagRow}>
-          {!!r.disease && <Tag label={r.disease} color={T.muted2} />}
-          {!!r.city && <Tag label={r.city} color={T.muted2} />}
-          {visited && <Tag label="Visited" color="#2F6FA8" />}
-          {ipd && <Tag label="IPD" color="#B3523B" />}
-        </View>
-      )}
-
-      {!!r.message && (
-        <View style={st.messageBox}>
-          <Text style={st.messageLabel}>THEIR MESSAGE</Text>
-          <Text style={st.messageText}>{r.message}</Text>
-        </View>
-      )}
-
-      {!!r.note && (
-        <View style={st.noteBox}>
-          <Text style={st.noteText}>{r.note}</Text>
-        </View>
-      )}
-
-      <View style={st.actions}>
         <TouchableOpacity
           onPress={onCall}
-          style={[st.action, { backgroundColor: HUE_L }]}
+          style={[st.iconBtn, { backgroundColor: HUE_L, borderColor: HUE_L }]}
+          hitSlop={{ top: 6, bottom: 6, left: 4, right: 4 }}
           accessibilityRole="button"
-          accessibilityLabel={`Call ${r.name || r.phoneno}`}
+          accessibilityLabel={`Call ${title}`}
         >
-          <Icon name="call" size={15} color="#fff" />
-          <Text style={st.actionTextOn}>Call</Text>
+          <Icon name="call" size={16} color="#fff" />
         </TouchableOpacity>
-
         <TouchableOpacity
           onPress={onWhatsapp}
-          style={st.actionGhost}
+          style={[st.iconBtn, { backgroundColor: '#fff' }]}
+          hitSlop={{ top: 6, bottom: 6, left: 4, right: 4 }}
           accessibilityRole="button"
-          accessibilityLabel={`WhatsApp ${r.name || r.phoneno}`}
+          accessibilityLabel={`WhatsApp ${title}`}
         >
-          <Icon name="chat" size={15} color="#1E7A5A" />
-        </TouchableOpacity>
-
-        <View style={{ flex: 1 }} />
-
-        <TouchableOpacity
-          onPress={() => onStatus('Enquiry')}
-          style={[st.actionGhost, { borderColor: STATUSES.Enquiry.color }]}
-          accessibilityRole="button"
-        >
-          <Text style={[st.actionText, { color: STATUSES.Enquiry.color }]}>
-            Enquiry
-          </Text>
-        </TouchableOpacity>
-
-        <TouchableOpacity
-          onPress={() => onStatus('Appointment')}
-          style={[st.actionGhost, { borderColor: STATUSES.Appointment.color }]}
-          accessibilityRole="button"
-        >
-          <Text style={[st.actionText, { color: STATUSES.Appointment.color }]}>
-            Booked
-          </Text>
+          <Icon name="chat" size={16} color="#1E7A5A" />
         </TouchableOpacity>
       </View>
-    </View>
-  );
-};
 
-const StatusSheet = ({ sheet, note, setNote, saving, onSave, onClose }) => {
-  const meta = sheet ? statusMeta(sheet.status) : UNATTENDED;
-  return (
-    <Modal
-      visible={!!sheet}
-      transparent
-      animationType="slide"
-      onRequestClose={onClose}
-    >
-      <Pressable
-        style={st.overlay}
-        onPress={onClose}
-        accessibilityLabel="Close"
-      />
-      <View style={st.sheet}>
-        <View style={st.sheetHead}>
-          <Icon name={meta.icon} size={18} color={meta.color} />
-          <Text style={st.sheetTitle}>Mark as {meta.label}</Text>
+      {hasTags && (
+        <View style={st.tagRow}>
+          {!!r.disease && (
+            <Tag label={r.disease} color={T.muted2} solid={!!hl} />
+          )}
+          {!!r.city && <Tag label={r.city} color={T.muted2} solid={!!hl} />}
+          {!!r.selected_area && r.selected_area !== r.city && (
+            <Tag label={r.selected_area} color={T.muted2} solid={!!hl} />
+          )}
+          {visited && <Tag label="Visited" color="#2F6FA8" solid={!!hl} />}
+          {ipd && <Tag label="IPD" color="#B3523B" solid={!!hl} />}
         </View>
-        <Text style={st.sheetSub}>
-          {sheet?.lead?.name || sheet?.lead?.phoneno}
-        </Text>
+      )}
 
-        <TextInput
-          value={note}
-          onChangeText={setNote}
-          placeholder="What was discussed? (optional)"
-          placeholderTextColor={T.muted2}
-          style={st.noteInput}
-          multiline
-          numberOfLines={4}
-          textAlignVertical="top"
-        />
-
-        <TouchableOpacity
-          onPress={onSave}
-          disabled={saving}
-          style={[
-            st.save,
-            { backgroundColor: meta.color },
-            saving && { opacity: 0.6 },
-          ]}
-          accessibilityRole="button"
-        >
-          <Text style={st.saveText}>{saving ? 'Saving…' : 'Save'}</Text>
-        </TouchableOpacity>
-      </View>
-    </Modal>
+      {hasText && (
+        <View style={st.textBox}>
+          <View style={{ flex: 1, minWidth: 0 }}>
+            {!!r.message && (
+              <Text style={st.messageText} numberOfLines={lines}>
+                <Text style={st.textLabel}>MSG </Text>
+                {r.message}
+              </Text>
+            )}
+            {!!r.note && (
+              <Text style={st.noteText} numberOfLines={lines}>
+                <Text style={st.textLabel}>NOTE </Text>
+                {r.note}
+              </Text>
+            )}
+          </View>
+          <Icon
+            name={open ? 'expand-less' : 'expand-more'}
+            size={16}
+            color={T.muted2}
+          />
+        </View>
+      )}
+    </TouchableOpacity>
   );
 };
 
@@ -723,155 +637,89 @@ const st = StyleSheet.create({
     backgroundColor: T.card,
     borderWidth: 1,
     borderColor: T.line,
-    borderRadius: 13,
-    paddingVertical: 12,
-    paddingHorizontal: 13,
+    borderRadius: 12,
+    paddingVertical: 9,
+    paddingLeft: 12,
+    paddingRight: 10,
     marginHorizontal: 16,
-    marginTop: 9,
+    marginTop: 7,
     overflow: 'hidden',
   },
   rowSpine: {
     position: 'absolute',
     left: 0,
-    top: 12,
-    bottom: 12,
+    top: 9,
+    bottom: 9,
     width: 3,
     borderTopRightRadius: 3,
     borderBottomRightRadius: 3,
   },
-  rowHead: { flexDirection: 'row', alignItems: 'flex-start', gap: 10 },
-  avatar: {
-    width: 34,
-    height: 34,
-    borderRadius: 10,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  avatarText: { fontFamily: F.semibold, fontSize: 12 },
+  rowHead: { flexDirection: 'row', alignItems: 'center', gap: 6 },
+  titleLine: { flexDirection: 'row', alignItems: 'center', gap: 6 },
   name: {
+    flexShrink: 1,
     fontSize: 13.5,
     fontFamily: F.medium,
     color: T.text,
     letterSpacing: -0.1,
   },
-  phone: { fontFamily: F.mono, fontSize: 12, color: T.text, marginTop: 3 },
   badge: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 4,
-    borderRadius: 6,
-    paddingHorizontal: 7,
-    paddingVertical: 4,
+    gap: 3,
+    borderRadius: 5,
+    paddingHorizontal: 5,
+    paddingVertical: 2,
   },
-  badgeText: { fontFamily: F.mono, fontSize: 8.5, letterSpacing: 0.6 },
+  badgeText: { fontFamily: F.mono, fontSize: 8, letterSpacing: 0.5 },
+  sub: { fontFamily: F.mono, fontSize: 10.5, marginTop: 3 },
 
-  meta: { fontFamily: F.mono, fontSize: 10, color: T.muted2, marginTop: 8 },
+  iconBtn: {
+    width: 34,
+    height: 34,
+    borderRadius: 17,
+    borderWidth: 1,
+    borderColor: T.line,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
 
-  tagRow: { flexDirection: 'row', gap: 5, marginTop: 8, flexWrap: 'wrap' },
+  tagRow: { flexDirection: 'row', gap: 4, marginTop: 6, flexWrap: 'wrap' },
   tag: {
     borderWidth: 1,
     borderRadius: 5,
-    paddingHorizontal: 6,
-    paddingVertical: 2,
+    paddingHorizontal: 5,
+    paddingVertical: 1,
+    maxWidth: '60%',
   },
-  tagText: { fontFamily: F.mono, fontSize: 8.5, letterSpacing: 0.6 },
+  tagText: { fontFamily: F.mono, fontSize: 8.5, letterSpacing: 0.5 },
 
-  messageBox: {
-    borderLeftWidth: 2,
-    borderLeftColor: HUE_L,
-    backgroundColor: '#F1F7F7',
+  textBox: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 4,
+    backgroundColor: 'rgba(255,255,255,0.75)',
     borderRadius: 6,
-    paddingVertical: 8,
-    paddingHorizontal: 10,
-    marginTop: 9,
+    paddingVertical: 5,
+    paddingHorizontal: 8,
+    marginTop: 6,
   },
-  messageLabel: {
+  textLabel: {
     fontFamily: F.mono,
-    fontSize: 7.5,
-    letterSpacing: 0.9,
+    fontSize: 8,
+    letterSpacing: 0.6,
     color: T.muted2,
-    marginBottom: 4,
   },
   messageText: {
-    fontSize: 12,
-    color: T.text,
-    fontFamily: F.regular,
-    lineHeight: 17,
-  },
-
-  noteBox: {
-    borderLeftWidth: 2,
-    borderLeftColor: '#E0A93B',
-    backgroundColor: '#FBF6EC',
-    borderRadius: 6,
-    paddingVertical: 7,
-    paddingHorizontal: 9,
-    marginTop: 8,
-  },
-  noteText: {
     fontSize: 11.5,
     color: T.text,
     fontFamily: F.regular,
     lineHeight: 16,
   },
-
-  actions: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 7,
-    marginTop: 11,
-    paddingTop: 10,
-    borderTopWidth: 1,
-    borderTopColor: T.lineSoft,
-  },
-  action: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 5,
-    borderRadius: 8,
-    paddingVertical: 7,
-    paddingHorizontal: 11,
-  },
-  actionTextOn: { fontSize: 11.5, color: '#fff', fontFamily: F.medium },
-  actionGhost: {
-    borderWidth: 1,
-    borderColor: T.line,
-    borderRadius: 8,
-    paddingVertical: 7,
-    paddingHorizontal: 10,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  actionText: { fontSize: 11.5, fontFamily: F.medium },
-
-  overlay: { flex: 1, backgroundColor: 'rgba(5,20,12,0.32)' },
-  sheet: {
-    backgroundColor: T.card,
-    borderTopLeftRadius: 18,
-    borderTopRightRadius: 18,
-    paddingHorizontal: 18,
-    paddingTop: 16,
-    paddingBottom: 28,
-  },
-  sheetHead: { flexDirection: 'row', alignItems: 'center', gap: 8 },
-  sheetTitle: { fontFamily: F.semibold, fontSize: 15, color: T.text },
-  sheetSub: { fontFamily: F.mono, fontSize: 12, color: T.muted2, marginTop: 4 },
-  noteInput: {
-    borderWidth: 1,
-    borderColor: T.line,
-    borderRadius: 11,
-    padding: 12,
-    marginTop: 14,
-    minHeight: 90,
-    fontSize: 13.5,
-    color: T.text,
+  noteText: {
+    fontSize: 11.5,
+    color: '#8A5A00',
     fontFamily: F.regular,
+    lineHeight: 16,
   },
-  save: {
-    borderRadius: 11,
-    paddingVertical: 13,
-    alignItems: 'center',
-    marginTop: 14,
-  },
-  saveText: { fontFamily: F.semibold, fontSize: 14, color: '#fff' },
 });

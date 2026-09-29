@@ -209,7 +209,7 @@ export const SECTION_SHAPERS = {
     blocks: [
       {
         key: 'rx',
-        kind: 'breakdown',
+        kind: 'counts',
         label: 'Prescription conversion',
         data: pharmacyPrescriptions(data),
       },
@@ -322,6 +322,19 @@ export function ipdMetrics(data) {
       label: 'Avg per patient',
       value: inr(data.avgPerPatient),
       ...(deltaNote(d.avgPerPatient, single) || {}),
+    });
+  }
+
+  // Interbranch invoices operated here for another branch. They are NOT in
+  // any figure above (they count at the source branch) — shown so a lower
+  // admissions / revenue number explains itself.
+  const ib = data.interbranch;
+  if (ib && ib.invoices > 0) {
+    out.push({
+      key: 'interbranch',
+      label: 'Interbranch (excl.)',
+      value: inr(ib.amount),
+      note: `${num(ib.invoices)} inv · counted at source`,
     });
   }
 
@@ -556,6 +569,18 @@ export function pharmacyMetrics(data) {
     });
   }
 
+  // Beside Patients billed (the grid is two per row): patients whose
+  // prescription recorded that no medicines were prescribed — the other half
+  // of "why didn't this patient buy anything".
+  if (data.noMedicinePatients != null) {
+    out.push({
+      key: 'noMedicine',
+      label: 'No medicine prescribed',
+      value: num(data.noMedicinePatients),
+      note: 'patients',
+    });
+  }
+
   return out;
 }
 
@@ -638,68 +663,38 @@ export function pharmacyMedicines(data) {
 /**
  * Prescription conversion by patient type.
  *
- * Four figures per type: how many prescriptions, how many were dispensed
- * against, how many walked out with nothing, and what that nothing was worth.
+ * Four counts per type: how many prescriptions, how many were dispensed
+ * against, how many walked out with nothing, and the conversion rate.
  *
- * Partial shortfall is reported SEPARATELY from the not-taken loss. A patient
- * who bought one of six medicines counts as taken — a conversion on paper and a
- * loss in practice — so folding the two together would overstate conversion and
- * understate the loss at the same time.
+ * A prescription counts as TAKEN when anything at all was bought against it,
+ * so a partial purchase is a conversion here.
  */
 export function pharmacyPrescriptions(data) {
   const rx = data?.prescriptions;
   if (!rx || !rx.byType?.length) return null;
 
-  const worst = Math.max(...rx.byType.map(t => t.lostNotTaken), 1);
+  const convTone = pct =>
+    pct == null ? null : pct >= 70 ? 'good' : pct >= 50 ? 'warn' : 'bad';
+  const vals = t => {
+    const pct =
+      t.conversionPct ??
+      (t.total > 0 ? Math.round((t.taken / t.total) * 100) : null);
+    const notTaken = t.notTaken ?? t.total - t.taken;
+    return [
+      { v: num(t.total) },
+      { v: num(t.taken), tone: 'good' },
+      { v: num(notTaken), tone: notTaken > 0 ? 'bad' : null },
+      { v: pct == null ? '—' : `${pct}%`, tone: convTone(pct) },
+    ];
+  };
 
+  // Counts only. The rupee "not taken" figure was dropped — it was not a
+  // reliable number, and a wrong amount is worse than none.
   return {
-    rows: rx.byType.map(t => ({
-      key: t.key,
-      label: t.label,
-      // The headline per row is the money left on the counter, not the count —
-      // that is the number that prompts anyone to act.
-      amount: inr(t.lostNotTaken),
-      amountLabel: 'NOT TAKEN',
-      share: Math.round((t.lostNotTaken / worst) * 100),
-      figures: [
-        { label: 'PRESCRIBED', value: num(t.total) },
-        { label: 'TAKEN', value: num(t.taken), tone: 'good' },
-        {
-          label: 'NOT TAKEN',
-          value: num(t.notTaken),
-          tone: t.notTaken > 0 ? 'bad' : null,
-        },
-        {
-          label: 'CONVERSION',
-          value: t.conversionPct == null ? '—' : `${t.conversionPct}%`,
-          tone:
-            t.conversionPct == null
-              ? null
-              : t.conversionPct >= 70
-              ? 'good'
-              : t.conversionPct >= 50
-              ? 'warn'
-              : 'bad',
-        },
-      ],
-      // Only shown when there is partial loss to show — most rows have some,
-      // but a type where everyone bought everything should say nothing.
-      note:
-        t.lostPartial > 0
-          ? `${inr(t.lostPartial)} more lost to partial purchases`
-          : null,
-    })),
-    foot: {
-      label: 'ALL TYPES',
-      meta: `${num(rx.totals.taken)} of ${num(rx.totals.total)} taken`,
-      amount: inr(rx.totals.lostNotTaken),
-    },
-    note:
-      rx.totals.lostTotal > rx.totals.lostNotTaken
-        ? `${inr(rx.totals.lostTotal)} total unrealised, including ${inr(
-            rx.totals.lostPartial,
-          )} from partial purchases. Counter prescriptions only.`
-        : 'Counter prescriptions only — in-house bills carry no prescription.',
+    columns: ['PRESCRIBED', 'TAKEN', 'NOT TAKEN', 'CONV.'],
+    rows: rx.byType.map(t => ({ key: t.key, label: t.label, values: vals(t) })),
+    foot: { label: 'ALL TYPES', values: vals(rx.totals) },
+    note: 'Counter prescriptions only — in-house bills carry no prescription.',
   };
 }
 
@@ -780,14 +775,36 @@ const LEAD_ROUTES = {
   web: 'WebLeads',
   chatbot: 'BotLeads',
   ivr: 'IVRCall',
+  webcall: 'WebCallLeads',
+  aggregator: 'PartnerLeads',
   sulekha: 'PartnerLeads',
   hexa: 'PartnerLeads',
 };
-export function leadsSources(data) {
-  const rows = data?.channels || [];
-  if (!rows.length) return null;
 
-  const t = data.totals || {};
+// The five sources always shown, in this order, even with no leads in the
+// period. The backend (overview/leadsModel.js) sends the same list; this is the
+// fallback so the rows still appear if an older backend omits a source.
+const LEAD_SOURCE_ORDER = [
+  { key: 'ivr', label: 'IVR' },
+  { key: 'web', label: 'Website' },
+  { key: 'chatbot', label: 'Chatbot' },
+  { key: 'webcall', label: 'Web call' },
+  { key: 'aggregator', label: 'Aggregator' },
+];
+
+export function leadsSources(data) {
+  const byKey = {};
+  for (const c of data?.channels || []) byKey[c.key] = c;
+  const rows = LEAD_SOURCE_ORDER.map(s => ({
+    key: s.key,
+    label: byKey[s.key]?.label || s.label,
+    total: Number(byKey[s.key]?.total) || 0,
+    appointment: Number(byKey[s.key]?.appointment) || 0,
+    visited: Number(byKey[s.key]?.visited) || 0,
+    ipd: Number(byKey[s.key]?.ipd) || 0,
+  }));
+
+  const t = data?.totals || {};
   const most = Math.max(...rows.map(r => r.total), 1);
 
   return {
@@ -835,7 +852,7 @@ export function leadsSources(data) {
       meta: `${num(t.appointment)} of ${num(t.total)} booked`,
       amount: num(t.total),
     },
-    note: data.meta?.singleDay
+    note: data?.meta?.singleDay
       ? 'A lead that books today and visits next week is not yet counted as visited. Read conversion over a month, not a day.'
       : 'Visits are counted inside the selected period only, so conversion is understated near the end of a range.',
   };

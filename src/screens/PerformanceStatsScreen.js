@@ -48,7 +48,7 @@ import SectionHeader from '../design/components/SectionHeader';
 
 const ACCENT = HUE.performance || '#1E7A5A';
 
-const BACKEND_URL = 'http://10.0.0.30:5100/hms';
+const BACKEND_URL = 'https://wedoc.in/hms';
 
 // No red anywhere on this screen — a month that is down is not an error.
 // Up reads green, down reads bronze, flat reads muted.

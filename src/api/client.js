@@ -4,7 +4,7 @@
 // One place that knows the backend base URL, one place that turns a failed
 // response into a sentence a person can read.
 //
-// Today `const BACKEND_URL = 'http://10.0.0.30:5100/hms'` is re-declared in roughly
+// Today `const BACKEND_URL = 'https://wedoc.in/hms'` is re-declared in roughly
 // twenty files. Nothing here rewrites those — the legacy screens keep working
 // untouched. New code imports from this file, and screens can migrate later
 // one at a time.
@@ -16,7 +16,7 @@
 
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
-export const BASE_URL = 'http://10.0.0.30:5100/hms';
+export const BASE_URL = 'https://wedoc.in/hms';
 
 const DEFAULT_TIMEOUT = 20000;
 
@@ -71,8 +71,12 @@ async function request(path, { method = 'GET', params, body, timeout } = {}) {
     timeout || DEFAULT_TIMEOUT,
   );
 
+  const url = `${BASE_URL}${path}${qs(params)}`;
+  // eslint-disable-next-line no-undef
+  if (__DEV__) console.log('[api] →', method, url);
+
   try {
-    const res = await fetch(`${BASE_URL}${path}${qs(params)}`, {
+    const res = await fetch(url, {
       method,
       headers: {
         'Content-Type': 'application/json',
@@ -82,6 +86,8 @@ async function request(path, { method = 'GET', params, body, timeout } = {}) {
       signal: controller.signal,
     });
 
+    // eslint-disable-next-line no-undef
+    if (__DEV__) console.log('[api] ←', res.status, url);
     if (!res.ok) throw await toError(res);
     if (res.status === 204) return null;
     return await res.json();

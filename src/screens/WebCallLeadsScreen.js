@@ -8,18 +8,16 @@
 //   GET  /leadManagement/call?location=
 //   POST /leadManagement/updateStatus/call?id=   { status, note }
 //
-// REQUIRES call_leads_migration.sql — without the `status` and `note` columns
-// the actions have nowhere to write and every update returns a silent no-op.
+// REQUIRES call_leads_migration.sql for the `status` and `note` columns. This
+// screen no longer writes them (the Enquiry / Booked buttons were removed to
+// match the Web / Bot leads screen); status is set by the approval flow and
+// by syncCallAppointments on the backend.
 //
-// ⚠️ NO DATE RANGE, SO NO SCOPE CHIP
-// ──────────────────────────────────
-// getCallLeads takes location only and returns `ORDER BY id DESC LIMIT 100` —
-// the hundred most recent, whenever they came in. Rendering the period selector
-// would imply a filter that does nothing, so the header hides it and the
-// subtitle says what the window actually is.
-//
-// If a branch ever exceeds a hundred open leads the oldest fall off the bottom
-// invisibly. The count is shown against the cap so that is at least visible.
+// DATE RANGE
+// ──────────
+// The header's scope chip sets the range, like every other leads screen, and
+// it is sent as from/to. The server returns every lead created in that range
+// (no 100-row cap when a range is given).
 //
 // ⚠️ THERE IS NO NAME
 // ───────────────────
@@ -42,8 +40,6 @@ import {
   Alert,
   FlatList,
   Linking,
-  Modal,
-  Pressable,
   RefreshControl,
   ScrollView,
   StyleSheet,
@@ -56,8 +52,9 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import Icon from 'react-native-vector-icons/MaterialIcons';
 import { useSelector } from 'react-redux';
 
-import { get, post } from '../api/client';
+import { get } from '../api/client';
 import SectionHeader from '../design/components/SectionHeader';
+import { useScopeRange } from '../scope/useScopeRange';
 import { F, HUE, T, num } from '../design/tokens';
 
 const HUE_L = HUE.leads;
@@ -74,10 +71,24 @@ const STATUSES = {
   },
 };
 
-// A lead with no status has not been worked yet — that is the queue.
-const NEW = { label: 'New', color: '#B3382B', icon: 'fiber-new' };
+// Same as the Web / Bot leads screen: a lead with no status is un-attended.
+const UNATTENDED = {
+  label: 'Un-attended',
+  color: '#B3382B',
+  icon: 'fiber-new',
+};
 
-const statusMeta = s => STATUSES[s] || NEW;
+// null, undefined, '' and the string 'null' (a JSON round-trip of SQL NULL)
+// all mean un-attended.
+const isUnattended = s =>
+  s === null || s === undefined || s === '' || s === 'null';
+
+const statusMeta = s =>
+  isUnattended(s) ? UNATTENDED : STATUSES[s] || UNATTENDED;
+
+// Same whole-card colours as the Web / Bot leads screen (and the old
+// WebLeads.js): green for Appointment, amber for Enquiry, white otherwise.
+const CARD_BG = { Appointment: '#66BB6A', Enquiry: '#FFB300' };
 
 const digits = p => String(p || '').replace(/\D/g, '');
 
@@ -113,26 +124,26 @@ const ageInDays = d => {
   return Math.floor((Date.now() - dt.getTime()) / 86400000);
 };
 
-const WebCallLeadsScreen = ({ navigation }) => {
-  const location = useSelector(s => s.location.value);
+const WebCallLeadsScreen = ({ navigation, route }) => {
+  const reduxLocation = useSelector(s => s.location.value);
+  const location = route?.params?.location || reduxLocation;
+  // Same date scope as every other leads screen — the header chip changes it.
+  const { from, to } = useScopeRange(route);
 
   const [rows, setRows] = useState([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState('');
   const [query, setQuery] = useState('');
-  const [status, setStatus] = useState('new');
+  const [status, setStatus] = useState('');
   const [source, setSource] = useState('');
-  const [sheet, setSheet] = useState(null); // { lead, status }
-  const [note, setNote] = useState('');
-  const [saving, setSaving] = useState(false);
 
   const load = useCallback(
     async (quiet = false) => {
       if (!quiet) setLoading(true);
       setError('');
       try {
-        const res = await get('/leadManagement/call', { location });
+        const res = await get('/leadManagement/call', { location, from, to });
         setRows(Array.isArray(res) ? res : []);
       } catch (e) {
         setError(e.message);
@@ -141,7 +152,7 @@ const WebCallLeadsScreen = ({ navigation }) => {
         setRefreshing(false);
       }
     },
-    [location],
+    [location, from, to],
   );
 
   useEffect(() => {
@@ -149,10 +160,21 @@ const WebCallLeadsScreen = ({ navigation }) => {
   }, [load]);
 
   const counts = useMemo(() => {
-    const c = { all: rows.length, new: 0, Enquiry: 0, Appointment: 0 };
+    const c = {
+      all: rows.length,
+      unattended: 0,
+      Enquiry: 0,
+      Appointment: 0,
+      visited: 0,
+      ipd: 0,
+    };
     for (const r of rows) {
-      if (!r.status) c.new++;
-      else if (c[r.status] !== undefined) c[r.status]++;
+      if (isUnattended(r.status)) c.unattended++;
+      else if (r.status === 'Enquiry') c.Enquiry++;
+      else if (r.status === 'Appointment') c.Appointment++;
+      // `visited` / `ipd` come from the server (attachVisitFlags).
+      if (r.visited) c.visited++;
+      if (r.ipd) c.ipd++;
     }
     return c;
   }, [rows]);
@@ -173,7 +195,9 @@ const WebCallLeadsScreen = ({ navigation }) => {
 
   const list = useMemo(() => {
     let out = rows;
-    if (status === 'new') out = out.filter(r => !r.status);
+    if (status === 'Unattended') out = out.filter(r => isUnattended(r.status));
+    else if (status === 'Visited') out = out.filter(r => r.visited);
+    else if (status === 'IPD') out = out.filter(r => r.ipd);
     else if (status) out = out.filter(r => r.status === status);
     if (source)
       out = out.filter(r => (r.source || 'Direct / organic') === source);
@@ -216,39 +240,6 @@ const WebCallLeadsScreen = ({ navigation }) => {
     );
   };
 
-  const openSheet = (lead, nextStatus) => {
-    setSheet({ lead, status: nextStatus });
-    setNote(lead.note || '');
-  };
-
-  const save = async () => {
-    if (!sheet || saving) return;
-    setSaving(true);
-    try {
-      await post(
-        `/leadManagement/updateStatus/call?id=${encodeURIComponent(
-          sheet.lead.appointment_id,
-        )}`,
-        { status: sheet.status, note: note.trim() || null },
-      );
-      // Updated locally rather than refetching: the list is capped at 100 and
-      // ordered by id, so a reload would scroll the person back to the top and
-      // lose their place in a queue they are working through.
-      setRows(rs =>
-        rs.map(r =>
-          r.appointment_id === sheet.lead.appointment_id
-            ? { ...r, status: sheet.status, note: note.trim() || null }
-            : r,
-        ),
-      );
-      setSheet(null);
-    } catch (e) {
-      Alert.alert('Could not save', e.message);
-    } finally {
-      setSaving(false);
-    }
-  };
-
   const header = (
     <View>
       <SectionHeader
@@ -256,29 +247,34 @@ const WebCallLeadsScreen = ({ navigation }) => {
         name="Web Call Leads"
         sub="Call-back requests from the website"
         hue={HUE_L}
-        hideScope
         onBack={() => navigation.goBack()}
       />
 
       <View style={st.body}>
         <View style={st.statRow}>
           <Stat
-            label="To call"
-            value={num(counts.new)}
-            note="not yet worked"
-            color={NEW.color}
-          />
-          <Stat
-            label="Enquiry"
-            value={num(counts.Enquiry)}
-            note="spoken to"
-            color={STATUSES.Enquiry.color}
+            label="Leads"
+            value={num(counts.all)}
+            note="in this period"
+            color={T.text}
           />
           <Stat
             label="Appointment"
             value={num(counts.Appointment)}
-            note="booked"
+            note={
+              counts.all > 0
+                ? `${Math.round(
+                    (counts.Appointment / counts.all) * 100,
+                  )}% converted`
+                : 'none'
+            }
             color={STATUSES.Appointment.color}
+          />
+          <Stat
+            label="Un-attended"
+            value={num(counts.unattended)}
+            note="un-attended"
+            color={UNATTENDED.color}
           />
         </View>
 
@@ -288,7 +284,12 @@ const WebCallLeadsScreen = ({ navigation }) => {
           contentContainerStyle={st.chips}
         >
           {[
-            { key: 'new', label: 'To call', n: counts.new, c: NEW.color },
+            {
+              key: 'Unattended',
+              label: 'Un-attended',
+              n: counts.unattended,
+              c: UNATTENDED.color,
+            },
             { key: '', label: 'All', n: counts.all, c: HUE_L },
             {
               key: 'Enquiry',
@@ -302,6 +303,13 @@ const WebCallLeadsScreen = ({ navigation }) => {
               n: counts.Appointment,
               c: STATUSES.Appointment.color,
             },
+            {
+              key: 'Visited',
+              label: 'Visited',
+              n: counts.visited,
+              c: '#2F6FA8',
+            },
+            { key: 'IPD', label: 'IPD', n: counts.ipd, c: '#B3523B' },
           ].map(f => {
             const on = status === f.key;
             return (
@@ -378,13 +386,6 @@ const WebCallLeadsScreen = ({ navigation }) => {
           )}
         </View>
 
-        {/* The endpoint caps at 100 rows, so a busy branch loses the oldest
-            silently. Said out loud when the cap is reached. */}
-        {rows.length >= 100 && (
-          <Text style={st.cap}>
-            Showing the 100 most recent leads. Older ones are not listed.
-          </Text>
-        )}
         {list.length !== rows.length && (
           <Text style={st.showing}>
             Showing {num(list.length)} of {num(rows.length)} leads
@@ -425,18 +426,8 @@ const WebCallLeadsScreen = ({ navigation }) => {
             r={item}
             onCall={() => call(item.phoneno)}
             onWhatsapp={() => whatsapp(item.phoneno)}
-            onStatus={s => openSheet(item, s)}
           />
         )}
-      />
-
-      <StatusSheet
-        sheet={sheet}
-        note={note}
-        setNote={setNote}
-        saving={saving}
-        onSave={save}
-        onClose={() => setSheet(null)}
       />
     </SafeAreaView>
   );
@@ -454,145 +445,126 @@ const Stat = ({ label, value, note, color }) => (
   </View>
 );
 
-const LeadCard = ({ r, onCall, onWhatsapp, onStatus }) => {
+const Tag = ({ label, color, solid }) => (
+  <View
+    style={[
+      st.tag,
+      { borderColor: color },
+      solid && { backgroundColor: '#fff' },
+    ]}
+  >
+    <Text style={[st.tagText, { color }]} numberOfLines={1}>
+      {label}
+    </Text>
+  </View>
+);
+
+/**
+ * Compact call-lead card, same layout as the Web / Bot leads card:
+ *   line 1  phone + status badge                 [call] [whatsapp]
+ *   line 2  treatment · date (· age, while un-attended)
+ *   line 3  tags — source, website location, Visited, IPD
+ *   line 4  note, one line; tap the card to read it in full
+ * Call / WhatsApp sit beside the number instead of in a footer row.
+ */
+const LeadCard = ({ r, onCall, onWhatsapp }) => {
+  const [open, setOpen] = useState(false);
   const meta = statusMeta(r.status);
   const age = ageInDays(r.date);
-  const isNew = !r.status;
+  const isNew = isUnattended(r.status);
+  const hl = CARD_BG[r.status];
+  // On a coloured card the pale tints and grey text wash out, so the small
+  // chips go white and the secondary text goes dark.
+  const chipBg = hl ? '#fff' : `${meta.color}18`;
+  const subColor = hl ? T.text : T.muted2;
+
+  // Age matters most on an unworked lead — a week-old call-back request is a
+  // different conversation from an hour-old one.
+  const sub = [
+    r.disease || 'Treatment not identified',
+    fmtWhen(r.date),
+    isNew && age != null && age > 0 ? `${age}d old` : null,
+  ]
+    .filter(Boolean)
+    .join('  ·  ');
 
   return (
-    <View style={st.row}>
+    <TouchableOpacity
+      activeOpacity={0.85}
+      disabled={!r.note}
+      onPress={() => setOpen(o => !o)}
+      style={[st.row, hl && { backgroundColor: hl, borderColor: hl }]}
+      accessibilityHint={r.note ? 'Shows the full note' : undefined}
+    >
       <View style={[st.rowSpine, { backgroundColor: meta.color }]} />
 
       <View style={st.rowHead}>
         <View style={{ flex: 1, minWidth: 0 }}>
-          {/* The form captures no name — the number IS the identity. */}
-          <Text style={st.phone}>{r.phoneno || 'No number'}</Text>
-          <Text style={st.disease} numberOfLines={1}>
-            {r.disease || 'Treatment not identified'}
+          <View style={st.titleLine}>
+            {/* The form captures no name — the number IS the identity. */}
+            <Text style={st.phone} numberOfLines={1}>
+              {r.phoneno || 'No number'}
+            </Text>
+            <View style={[st.badge, { backgroundColor: chipBg }]}>
+              <Icon name={meta.icon} size={10} color={meta.color} />
+              <Text style={[st.badgeText, { color: meta.color }]}>
+                {meta.label}
+              </Text>
+            </View>
+          </View>
+          <Text style={[st.sub, { color: subColor }]} numberOfLines={1}>
+            {sub}
           </Text>
         </View>
-        <View style={[st.badge, { backgroundColor: `${meta.color}18` }]}>
-          <Icon name={meta.icon} size={12} color={meta.color} />
-          <Text style={[st.badgeText, { color: meta.color }]}>
-            {meta.label}
-          </Text>
-        </View>
-      </View>
 
-      <Text style={st.meta} numberOfLines={1}>
-        {fmtWhen(r.date)}
-        {/* Age matters most on an unworked lead — a week-old call-back request
-            is a different conversation from an hour-old one. */}
-        {isNew && age != null && age > 0 ? ` · ${age}d old` : ''}
-      </Text>
-      <Text style={st.meta2} numberOfLines={1}>
-        {r.source || 'Direct / organic'}
-        {r.branch ? ` · ${r.branch}` : ''}
-      </Text>
-
-      {!!r.note && (
-        <View style={st.noteBox}>
-          <Text style={st.noteText}>{r.note}</Text>
-        </View>
-      )}
-
-      <View style={st.actions}>
         <TouchableOpacity
           onPress={onCall}
-          style={[st.action, { backgroundColor: HUE_L }]}
+          style={[st.iconBtn, { backgroundColor: HUE_L, borderColor: HUE_L }]}
+          hitSlop={{ top: 6, bottom: 6, left: 4, right: 4 }}
           accessibilityRole="button"
           accessibilityLabel={`Call ${r.phoneno}`}
         >
-          <Icon name="call" size={15} color="#fff" />
-          <Text style={st.actionTextOn}>Call</Text>
+          <Icon name="call" size={16} color="#fff" />
         </TouchableOpacity>
-
         <TouchableOpacity
           onPress={onWhatsapp}
-          style={st.actionGhost}
+          style={[st.iconBtn, { backgroundColor: '#fff' }]}
+          hitSlop={{ top: 6, bottom: 6, left: 4, right: 4 }}
           accessibilityRole="button"
           accessibilityLabel={`WhatsApp ${r.phoneno}`}
         >
-          <Icon name="chat" size={15} color="#1E7A5A" />
-        </TouchableOpacity>
-
-        <View style={{ flex: 1 }} />
-
-        <TouchableOpacity
-          onPress={() => onStatus('Enquiry')}
-          style={[st.actionGhost, { borderColor: STATUSES.Enquiry.color }]}
-          accessibilityRole="button"
-        >
-          <Text style={[st.actionText, { color: STATUSES.Enquiry.color }]}>
-            Enquiry
-          </Text>
-        </TouchableOpacity>
-
-        <TouchableOpacity
-          onPress={() => onStatus('Appointment')}
-          style={[st.actionGhost, { borderColor: STATUSES.Appointment.color }]}
-          accessibilityRole="button"
-        >
-          <Text style={[st.actionText, { color: STATUSES.Appointment.color }]}>
-            Booked
-          </Text>
+          <Icon name="chat" size={16} color="#1E7A5A" />
         </TouchableOpacity>
       </View>
-    </View>
-  );
-};
 
-/**
- * Status change with a note. A sheet rather than an immediate write: the note
- * is the only record of what was actually said on the call, and a one-tap
- * status with no note loses that.
- */
-const StatusSheet = ({ sheet, note, setNote, saving, onSave, onClose }) => {
-  const meta = sheet ? statusMeta(sheet.status) : NEW;
-  return (
-    <Modal
-      visible={!!sheet}
-      transparent
-      animationType="slide"
-      onRequestClose={onClose}
-    >
-      <Pressable
-        style={st.overlay}
-        onPress={onClose}
-        accessibilityLabel="Close"
-      />
-      <View style={st.sheet}>
-        <View style={st.sheetHead}>
-          <Icon name={meta.icon} size={18} color={meta.color} />
-          <Text style={st.sheetTitle}>Mark as {meta.label}</Text>
-        </View>
-        <Text style={st.sheetSub}>{sheet?.lead?.phoneno}</Text>
-
-        <TextInput
-          value={note}
-          onChangeText={setNote}
-          placeholder="What was discussed? (optional)"
-          placeholderTextColor={T.muted2}
-          style={st.noteInput}
-          multiline
-          numberOfLines={4}
-          textAlignVertical="top"
+      <View style={st.tagRow}>
+        <Tag
+          label={r.source || 'Direct / organic'}
+          color={T.muted2}
+          solid={!!hl}
         />
-
-        <TouchableOpacity
-          onPress={onSave}
-          disabled={saving}
-          style={[
-            st.save,
-            { backgroundColor: meta.color },
-            saving && { opacity: 0.6 },
-          ]}
-          accessibilityRole="button"
-        >
-          <Text style={st.saveText}>{saving ? 'Saving…' : 'Save'}</Text>
-        </TouchableOpacity>
+        {!!r.branch && <Tag label={r.branch} color={T.muted2} solid={!!hl} />}
+        {r.visited && <Tag label="Visited" color="#2F6FA8" solid={!!hl} />}
+        {r.ipd && <Tag label="IPD" color="#B3523B" solid={!!hl} />}
       </View>
-    </Modal>
+
+      {!!r.note && (
+        <View style={st.noteBox}>
+          <Text
+            style={[st.noteText, { flex: 1 }]}
+            numberOfLines={open ? undefined : 1}
+          >
+            <Text style={st.noteLabel}>NOTE </Text>
+            {r.note}
+          </Text>
+          <Icon
+            name={open ? 'expand-less' : 'expand-more'}
+            size={16}
+            color={T.muted2}
+          />
+        </View>
+      )}
+    </TouchableOpacity>
   );
 };
 
@@ -699,67 +671,83 @@ const st = StyleSheet.create({
     fontFamily: F.regular,
   },
   showing: { fontSize: 10, color: T.muted2, marginTop: 10, fontFamily: F.mono },
-  cap: { fontSize: 10, color: '#B26A00', marginTop: 10, fontFamily: F.regular },
 
   row: {
     backgroundColor: T.card,
     borderWidth: 1,
     borderColor: T.line,
-    borderRadius: 13,
-    paddingVertical: 12,
-    paddingHorizontal: 13,
+    borderRadius: 12,
+    paddingVertical: 9,
+    paddingLeft: 12,
+    paddingRight: 10,
     marginHorizontal: 16,
-    marginTop: 9,
+    marginTop: 7,
     overflow: 'hidden',
   },
   rowSpine: {
     position: 'absolute',
     left: 0,
-    top: 12,
-    bottom: 12,
+    top: 9,
+    bottom: 9,
     width: 3,
     borderTopRightRadius: 3,
     borderBottomRightRadius: 3,
   },
-  rowHead: { flexDirection: 'row', alignItems: 'flex-start', gap: 10 },
+  rowHead: { flexDirection: 'row', alignItems: 'center', gap: 6 },
+  titleLine: { flexDirection: 'row', alignItems: 'center', gap: 6 },
   phone: {
+    flexShrink: 1,
     fontFamily: F.mono,
-    fontSize: 15,
+    fontSize: 14,
     color: T.text,
     letterSpacing: -0.2,
-  },
-  disease: {
-    fontSize: 12.5,
-    color: T.text,
-    marginTop: 4,
-    fontFamily: F.medium,
   },
   badge: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 4,
-    borderRadius: 6,
-    paddingHorizontal: 7,
-    paddingVertical: 4,
+    gap: 3,
+    borderRadius: 5,
+    paddingHorizontal: 5,
+    paddingVertical: 2,
   },
-  badgeText: { fontFamily: F.mono, fontSize: 8.5, letterSpacing: 0.6 },
+  badgeText: { fontFamily: F.mono, fontSize: 8, letterSpacing: 0.5 },
+  sub: { fontSize: 10.5, marginTop: 3, fontFamily: F.regular },
 
-  meta: { fontFamily: F.mono, fontSize: 10, color: T.muted2, marginTop: 8 },
-  meta2: {
-    fontSize: 10.5,
-    color: T.muted2,
-    marginTop: 3,
-    fontFamily: F.regular,
+  iconBtn: {
+    width: 34,
+    height: 34,
+    borderRadius: 17,
+    borderWidth: 1,
+    borderColor: T.line,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
+
+  tagRow: { flexDirection: 'row', gap: 4, marginTop: 6, flexWrap: 'wrap' },
+  tag: {
+    borderWidth: 1,
+    borderRadius: 5,
+    paddingHorizontal: 5,
+    paddingVertical: 1,
+    maxWidth: '60%',
+  },
+  tagText: { fontFamily: F.mono, fontSize: 8.5, letterSpacing: 0.5 },
 
   noteBox: {
-    borderLeftWidth: 2,
-    borderLeftColor: '#E0A93B',
-    backgroundColor: '#FBF6EC',
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 4,
+    backgroundColor: 'rgba(255,255,255,0.75)',
     borderRadius: 6,
-    paddingVertical: 7,
-    paddingHorizontal: 9,
-    marginTop: 9,
+    paddingVertical: 5,
+    paddingHorizontal: 8,
+    marginTop: 6,
+  },
+  noteLabel: {
+    fontFamily: F.mono,
+    fontSize: 8,
+    letterSpacing: 0.6,
+    color: T.muted2,
   },
   noteText: {
     fontSize: 11.5,
@@ -767,64 +755,4 @@ const st = StyleSheet.create({
     fontFamily: F.regular,
     lineHeight: 16,
   },
-
-  actions: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 7,
-    marginTop: 11,
-    paddingTop: 10,
-    borderTopWidth: 1,
-    borderTopColor: T.lineSoft,
-  },
-  action: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 5,
-    borderRadius: 8,
-    paddingVertical: 7,
-    paddingHorizontal: 11,
-  },
-  actionTextOn: { fontSize: 11.5, color: '#fff', fontFamily: F.medium },
-  actionGhost: {
-    borderWidth: 1,
-    borderColor: T.line,
-    borderRadius: 8,
-    paddingVertical: 7,
-    paddingHorizontal: 10,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  actionText: { fontSize: 11.5, fontFamily: F.medium },
-
-  overlay: { flex: 1, backgroundColor: 'rgba(5,20,12,0.32)' },
-  sheet: {
-    backgroundColor: T.card,
-    borderTopLeftRadius: 18,
-    borderTopRightRadius: 18,
-    paddingHorizontal: 18,
-    paddingTop: 16,
-    paddingBottom: 28,
-  },
-  sheetHead: { flexDirection: 'row', alignItems: 'center', gap: 8 },
-  sheetTitle: { fontFamily: F.semibold, fontSize: 15, color: T.text },
-  sheetSub: { fontFamily: F.mono, fontSize: 12, color: T.muted2, marginTop: 4 },
-  noteInput: {
-    borderWidth: 1,
-    borderColor: T.line,
-    borderRadius: 11,
-    padding: 12,
-    marginTop: 14,
-    minHeight: 90,
-    fontSize: 13.5,
-    color: T.text,
-    fontFamily: F.regular,
-  },
-  save: {
-    borderRadius: 11,
-    paddingVertical: 13,
-    alignItems: 'center',
-    marginTop: 14,
-  },
-  saveText: { fontFamily: F.semibold, fontSize: 14, color: '#fff' },
 });

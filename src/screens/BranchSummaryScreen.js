@@ -5,7 +5,14 @@
 // Every city on one screen, each opening to its branches.
 // The mobile answer to hhc-dashboard.html.
 //
-//   GET /overview/branchSummary?from=&to=&locations=a,b,c
+//   GET /overview/branchSummaryV2?from=&to=&locations=a,b,c
+//
+// Two figures per branch for the chosen range:
+//   NEW PT        confirmed appointments with patient_type = 'New'
+//   REV / NEW PT  (OPD + LAB + IPD + PHARMACY of EVERY patient type)
+//                 ÷ new patients
+// Tapping a branch opens BranchTrend — both figures as line charts, monthly,
+// quarterly (FY) and yearly (FY).
 //
 // ⚠️ CITY FIRST, BRANCH SECOND
 // ────────────────────────────
@@ -19,11 +26,11 @@
 // a city is a presentation decision. Putting CITY_OF in the backend would mean
 // every consumer inherits one screen's idea of how to group.
 //
-// ⚠️ CITY TOTALS ARE SUMMED, AVERAGES ARE RECOMPUTED
-// ──────────────────────────────────────────────────
-// Counts and revenue add up. Averages and conversion do NOT — averaging four
-// branches' avg-bill weights a 12-patient branch the same as a 400-patient one.
-// They are recomputed from the city's pooled figures instead.
+// ⚠️ CITY TOTALS ARE SUMMED, RATIOS ARE RECOMPUTED
+// ────────────────────────────────────────────────
+// New patients and revenue add up. Revenue per new patient does NOT — averaging
+// four branches' ratios weights a 12-patient branch the same as a 400-patient
+// one. It is recomputed from the city's pooled revenue ÷ pooled new patients.
 //
 // ⚠️ A BRANCH WITH NO CITY BECOMES ITS OWN
 // ────────────────────────────────────────
@@ -56,7 +63,13 @@ import { useScopeRange } from '../scope/useScopeRange';
 import { scopeLabel } from '../store/scopeSlice';
 import { F, T, inr, num } from '../design/tokens';
 
-const ENDPOINT = '/overview/branchSummary';
+const ENDPOINT = '/overview/branchSummaryV2';
+
+// The server reads every branch in turn (two at a time, to spare each branch
+// DB's small pool), so a full list takes well over the client's default 20s.
+// Without this the app gave up at 20s and showed "timed out" while the server
+// was still working.
+const TIMEOUT_MS = 180000;
 
 /**
  * Branch → city. Only multi-branch cities are listed; anything absent becomes
@@ -106,23 +119,16 @@ const MID = '#B26A00';
 const LOW = '#8A6F4A';
 
 const METRICS = [
-  { key: 'grandTotal', label: 'Revenue', money: true },
   { key: 'newPatients', label: 'New pt' },
-  { key: 'totalOPD', label: 'OPD' },
-  { key: 'avgOPDBill', label: 'Avg OPD', money: true, derived: true },
-  { key: 'conversion', label: 'Conv %', pct: true, derived: true },
-  { key: 'ipdCount', label: 'IPD' },
-  { key: 'avgIPDBill', label: 'Avg IPD', money: true, derived: true },
-  { key: 'pharmacy', label: 'Pharmacy', money: true },
+  {
+    key: 'revenuePerNewPatient',
+    label: 'Rev / new pt',
+    money: true,
+    derived: true,
+  },
 ];
 
 const n0 = v => Number(v) || 0;
-
-const fmtValue = (v, m) => {
-  if (v == null) return '—';
-  if (m.pct) return `${Number(v).toFixed(0)}%`;
-  return m.money ? inr(Math.round(v)) : num(v);
-};
 
 const MONTHS = [
   'Jan',
@@ -145,32 +151,67 @@ const fmtDate = d => {
   return m ? `${Number(day)} ${MONTHS[Number(m) - 1]}` : String(d);
 };
 
-/** Roll a set of branch rows into one line. See the header on averages. */
+/** Roll a set of branch rows into one line. See the header on ratios. */
+const perNew = (rev, n) => (n > 0 ? rev / n : null);
+const pctChange = (cur, prev) =>
+  cur == null || prev == null || prev === 0
+    ? null
+    : ((cur - prev) / prev) * 100;
+
+/**
+ * Growth of both figures for a pooled set of branches. Built from the raw
+ * comparison figures the API returns (`prev`), never by averaging branch
+ * percentages — same rule as the ratios.
+ */
+const pooledGrowth = (branches, newPatients, totalRevenue) => {
+  const g = k => {
+    const pn = branches.reduce((a, b) => a + n0(b.prev?.[k]?.newPatients), 0);
+    const pr = branches.reduce((a, b) => a + n0(b.prev?.[k]?.totalRevenue), 0);
+    return {
+      newPatients: pctChange(newPatients, pn),
+      revenuePerNewPatient: pctChange(
+        perNew(totalRevenue, newPatients),
+        perNew(pr, pn),
+      ),
+    };
+  };
+  return { mom: g('mom'), yoy: g('yoy') };
+};
+
 const roll = (name, branches) => {
   const sum = f => branches.reduce((a, b) => a + n0(b[f]), 0);
-  const opdRevenue = sum('opdRevenue');
-  const ipdRevenue = sum('ipdRevenue');
-  const totalOPD = sum('totalOPD');
-  const ipdCount = sum('ipdCount');
   const newPatients = sum('newPatients');
+  const totalRevenue = sum('totalRevenue');
 
   return {
     name,
     branches,
     newPatients,
-    male: sum('male'),
-    female: sum('female'),
-    totalOPD,
-    opdRevenue,
-    ipdCount,
-    ipdRevenue,
-    pharmacy: sum('pharmacy'),
-    grandTotal: sum('grandTotal'),
-    // Recomputed, never averaged.
-    avgOPDBill: totalOPD > 0 ? Math.round(opdRevenue / totalOPD) : null,
-    avgIPDBill: ipdCount > 0 ? Math.round(ipdRevenue / ipdCount) : null,
-    conversion: newPatients > 0 ? (ipdCount / newPatients) * 100 : null,
+    totalRevenue,
+    // Recomputed from the pool, never averaged.
+    revenuePerNewPatient:
+      newPatients > 0 ? Math.round(totalRevenue / newPatients) : null,
+    growth: pooledGrowth(branches, newPatients, totalRevenue),
   };
+};
+
+/** ▲12% / ▼3% / – (nothing to compare against). */
+const fmtGrowth = v =>
+  v == null ? '–' : `${v >= 0 ? '▲' : '▼'}${Math.abs(v).toFixed(0)}%`;
+// Up green, down amber — this screen keeps red for failures only.
+const growthColor = v => (v == null ? T.chevron : v >= 0 ? GOOD : MID);
+
+/** "▲12% · ▼3%" — MoM then YoY, each in its own colour. */
+const GrowthLine = ({ growth, field, style }) => {
+  const m = growth?.mom?.[field];
+  const y = growth?.yoy?.[field];
+  return (
+    <Text style={[st.growth, style]} numberOfLines={1} adjustsFontSizeToFit>
+      <Text style={{ color: growthColor(m) }}>{fmtGrowth(m)}</Text>
+      <Text style={{ color: T.chevron }}> · </Text>
+      <Text style={{ color: growthColor(y) }}>{fmtGrowth(y)}</Text>
+    </Text>
+  );
 };
 
 const BranchSummaryScreen = ({ navigation, route }) => {
@@ -183,24 +224,36 @@ const BranchSummaryScreen = ({ navigation, route }) => {
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState('');
   const [query, setQuery] = useState('');
-  const [metricKey, setMetricKey] = useState('grandTotal');
+  const [metricKey, setMetricKey] = useState('newPatients');
   const [openCity, setOpenCity] = useState(null);
   const [menuOpen, setMenuOpen] = useState(false);
   const [scopeOpen, setScopeOpen] = useState(false);
 
   const metric = METRICS.find(m => m.key === metricKey) || METRICS[0];
 
+  const branchList = useMemo(
+    () => (Array.isArray(locationArray) ? locationArray.filter(Boolean) : []),
+    [locationArray],
+  );
+
   const load = useCallback(
     async (quiet = false) => {
+      // No branches → the server would reject the call with a 400.
+      if (!branchList.length) {
+        setError('No branches are assigned to this login.');
+        setLoading(false);
+        setRefreshing(false);
+        return;
+      }
       if (!quiet) setLoading(true);
       setError('');
       try {
         setData(
-          await get(ENDPOINT, {
-            from,
-            to,
-            locations: (locationArray || []).join(','),
-          }),
+          await get(
+            ENDPOINT,
+            { from, to, locations: branchList.join(',') },
+            { timeout: TIMEOUT_MS },
+          ),
         );
       } catch (e) {
         setError(e.message);
@@ -209,7 +262,7 @@ const BranchSummaryScreen = ({ navigation, route }) => {
         setRefreshing(false);
       }
     },
-    [from, to, locationArray],
+    [from, to, branchList],
   );
 
   useEffect(() => {
@@ -257,7 +310,16 @@ const BranchSummaryScreen = ({ navigation, route }) => {
   }, [cities, query, metricKey]);
 
   const best = Math.max(...rows.map(c => n0(c[metricKey])), 1);
-  const groupValue = totals[metricKey];
+
+  // The trend screen reads its own history; only the name needs to travel.
+  const openBranch = useCallback(
+    location =>
+      navigation.navigate('BranchTrend', {
+        location,
+        city: CITY_OF[location] || null,
+      }),
+    [navigation],
+  );
 
   const header = (
     <View>
@@ -298,28 +360,21 @@ const BranchSummaryScreen = ({ navigation, route }) => {
       <View style={st.body}>
         <View style={[st.statRow, { marginTop: -26 }]}>
           <Stat
-            label="Revenue"
-            value={inr(totals.grandTotal)}
-            note="all branches"
-            wide
-          />
-          <Stat
             label="New pt"
             value={num(totals.newPatients)}
-            note={`${num(totals.male)}M · ${num(totals.female)}F`}
+            growth={totals.growth}
+            field="newPatients"
           />
-        </View>
-        <View style={[st.statRow, { marginTop: 9 }]}>
-          <Stat label="OPD" value={num(totals.totalOPD)} note="visits" />
-          <Stat label="IPD" value={num(totals.ipdCount)} note="cases" />
           <Stat
-            label="Conv"
+            label="Rev / new pt"
             value={
-              totals.conversion == null
+              totals.revenuePerNewPatient == null
                 ? '—'
-                : `${totals.conversion.toFixed(0)}%`
+                : inr(totals.revenuePerNewPatient)
             }
-            note="of new pt"
+            growth={totals.growth}
+            field="revenuePerNewPatient"
+            wide
           />
         </View>
 
@@ -368,9 +423,30 @@ const BranchSummaryScreen = ({ navigation, route }) => {
           )}
         </View>
 
+        {/* Column heads line up with the two number columns in every row. */}
         <View style={st.listHead}>
-          <Text style={st.listHeadText}>CITY</Text>
-          <Text style={st.listHeadVal}>{metric.label.toUpperCase()}</Text>
+          <Text style={[st.listHeadText, { flex: 1 }]}>CITY</Text>
+          <Text
+            style={[
+              st.listHeadVal,
+              st.colNew,
+              metricKey === 'newPatients' && st.listHeadOn,
+            ]}
+          >
+            NEW PT{'\n'}
+            <Text style={st.listHeadSub}>MoM · YoY</Text>
+          </Text>
+          <Text
+            style={[
+              st.listHeadVal,
+              st.colRev,
+              metricKey === 'revenuePerNewPatient' && st.listHeadOn,
+            ]}
+          >
+            REV / NEW PT{'\n'}
+            <Text style={st.listHeadSub}>MoM · YoY</Text>
+          </Text>
+          <View style={{ width: 18 }} />
         </View>
       </View>
     </View>
@@ -429,11 +505,11 @@ const BranchSummaryScreen = ({ navigation, route }) => {
             rank={index + 1}
             metric={metric}
             best={best}
-            groupValue={groupValue}
             open={openCity === item.name}
             onToggle={() =>
               setOpenCity(openCity === item.name ? null : item.name)
             }
+            onOpenBranch={openBranch}
           />
         )}
       />
@@ -449,7 +525,7 @@ const BranchSummaryScreen = ({ navigation, route }) => {
   );
 };
 
-const Stat = ({ label, value, note, wide }) => (
+const Stat = ({ label, value, growth, field, wide }) => (
   <View style={[st.stat, wide && { flex: 1.5 }]}>
     <Text style={st.statLabel} numberOfLines={1}>
       {label.toUpperCase()}
@@ -457,45 +533,94 @@ const Stat = ({ label, value, note, wide }) => (
     <Text style={st.statVal} numberOfLines={1}>
       {value}
     </Text>
-    <Text style={st.statNote} numberOfLines={1}>
-      {note}
-    </Text>
+    <View style={st.statGrowth}>
+      <GrowthLine growth={growth} field={field} style={st.statGrowthText} />
+      <Text style={st.statNote}> MoM · YoY</Text>
+    </View>
   </View>
 );
 
-const paceColor = vsGroup =>
-  vsGroup == null
-    ? T.muted2
-    : vsGroup >= 100
-    ? GOOD
-    : vsGroup >= 75
-    ? MID
-    : LOW;
+/**
+ * The two figures as fixed-width columns. The one being compared by is in the
+ * brand colour; the other stays dark. Numbers are the largest text in the row —
+ * the name only says what the numbers belong to.
+ */
+const Nums = ({ x, metricKey, size }) => {
+  const rev =
+    x.revenuePerNewPatient == null ? '—' : inr(x.revenuePerNewPatient);
+  return (
+    <>
+      <View style={st.colNew}>
+        <Text
+          style={[
+            st.num,
+            { fontSize: size },
+            metricKey === 'newPatients' && st.numOn,
+          ]}
+          numberOfLines={1}
+          adjustsFontSizeToFit
+        >
+          {num(x.newPatients)}
+        </Text>
+        <GrowthLine growth={x.growth} field="newPatients" />
+      </View>
+      <View style={st.colRev}>
+        <Text
+          style={[
+            st.num,
+            { fontSize: size },
+            metricKey === 'revenuePerNewPatient' && st.numOn,
+            rev === '—' && { color: T.chevron },
+          ]}
+          numberOfLines={1}
+          adjustsFontSizeToFit
+        >
+          {rev}
+        </Text>
+        <GrowthLine growth={x.growth} field="revenuePerNewPatient" />
+      </View>
+    </>
+  );
+};
+
+/** Thin share bar along the bottom edge of a row. */
+const Bar = ({ value, best, color }) => (
+  <View style={st.bar}>
+    <View
+      style={{
+        width: `${Math.max((n0(value) / (best || 1)) * 100, 1.5)}%`,
+        height: '100%',
+        backgroundColor: color,
+      }}
+    />
+  </View>
+);
 
 /**
- * One city. A LIST row, not a card — flat, full-bleed, hairline-separated, so
- * twenty of them read as one table rather than twenty floating objects.
+ * One city: a single compact line — rank, name (small), then both figures in
+ * big type — with its share bar underneath. Tapping opens its branches inline.
  */
-const CityRow = ({ c, rank, metric, best, groupValue, open, onToggle }) => {
+const CityRow = ({ c, rank, metric, best, open, onToggle, onOpenBranch }) => {
   const value = c[metric.key];
-  const hue = T.brand;
   const multi = c.branches.length > 1;
+  // A city of one IS the branch — tapping it goes straight to the trend.
+  const onPress = multi ? onToggle : () => onOpenBranch(c.branches[0].location);
 
   return (
     <View style={[st.cityWrap, open && st.cityWrapOpen]}>
       <TouchableOpacity
         style={st.city}
-        activeOpacity={multi ? 0.7 : 1}
-        onPress={multi ? onToggle : undefined}
-        disabled={!multi}
-        accessibilityRole={multi ? 'button' : 'text'}
-        accessibilityState={{ expanded: open }}
-        accessibilityLabel={`${c.name}, ${fmtValue(value, metric)}, ${
-          c.branches.length
-        } branches`}
+        activeOpacity={0.7}
+        onPress={onPress}
+        accessibilityRole="button"
+        accessibilityState={multi ? { expanded: open } : undefined}
+        accessibilityLabel={`${c.name}. ${num(c.newPatients)} new patients, ${
+          c.revenuePerNewPatient == null ? 'no' : inr(c.revenuePerNewPatient)
+        } revenue per new patient${
+          multi ? `, ${c.branches.length} branches` : '. Open trend'
+        }`}
       >
         <Text style={st.rank}>{rank}</Text>
-
         <View style={{ flex: 1, minWidth: 0 }}>
           <Text style={st.cityName} numberOfLines={1}>
             {c.name}
@@ -503,72 +628,26 @@ const CityRow = ({ c, rank, metric, best, groupValue, open, onToggle }) => {
           {multi && (
             <Text style={st.cityMeta}>{c.branches.length} branches</Text>
           )}
-          {/* The bar lives under the name, at the row's own indent, so the
-              value column stays a clean vertical line of numbers. */}
-          <View style={st.track}>
-            <View
-              style={{
-                width: `${Math.max((n0(value) / best) * 100, 1.5)}%`,
-                height: '100%',
-                borderRadius: 2,
-                backgroundColor: hue,
-              }}
-            />
-          </View>
         </View>
-
-        <View style={st.valueCol}>
-          <Text style={[st.value, { color: hue }]}>
-            {fmtValue(value, metric)}
-          </Text>
-        </View>
-
-        {multi ? (
-          <Icon
-            name={open ? 'expand-less' : 'expand-more'}
-            size={18}
-            color={T.chevron}
-          />
-        ) : (
-          <View style={{ width: 18 }} />
-        )}
+        <Nums x={c} metricKey={metric.key} size={18} />
+        <Icon
+          name={multi ? (open ? 'expand-less' : 'expand-more') : 'show-chart'}
+          size={18}
+          color={T.chevron}
+        />
       </TouchableOpacity>
-
-      {/* The same labelled grid the branch cards carry. A city is a branch-
-          shaped thing — same nine figures, summed — so it should read the same
-          way rather than making you open it to find out what it contains. */}
-      <View style={st.cityFigs}>
-        <View style={st.figs}>
-          <Fig label="NEW PT" value={num(c.newPatients)} />
-          <Fig label="M:F" value={`${c.male}:${c.female}`} />
-          <Fig label="OPD" value={num(c.totalOPD)} />
-          <Fig
-            label="AVG OPD"
-            value={c.avgOPDBill == null ? '—' : inr(c.avgOPDBill)}
-          />
-        </View>
-        <View style={[st.figs, st.figs2]}>
-          <Fig
-            label="CONV"
-            value={c.conversion == null ? '—' : `${c.conversion.toFixed(0)}%`}
-          />
-          <Fig label="IPD" value={num(c.ipdCount)} />
-          <Fig
-            label="AVG IPD"
-            value={c.avgIPDBill == null ? '—' : inr(c.avgIPDBill)}
-          />
-          <Fig label="PHARMACY" value={inr(c.pharmacy)} />
-        </View>
-      </View>
+      <Bar value={value} best={best} color={T.brand} />
 
       {open && (
         <View style={st.branchList}>
-          {c.branches.map(b => (
-            <BranchCard
+          {c.branches.map((b, i) => (
+            <BranchRow
               key={b.location}
               b={b}
               metric={metric}
-              cityBest={c[metric.key]}
+              cityBest={Math.max(...c.branches.map(x => n0(x[metric.key])), 1)}
+              first={i === 0}
+              onPress={() => onOpenBranch(b.location)}
             />
           ))}
         </View>
@@ -578,85 +657,40 @@ const CityRow = ({ c, rank, metric, best, groupValue, open, onToggle }) => {
 };
 
 /**
- * One branch, expanded under its city — the original card, unchanged.
- *
- * The run-on mono lines that replaced it were unreadable: nine numbers with no
- * column alignment, so nothing lined up between one branch and the next. The
- * card's labelled 4-across figure rows are what made it scannable, and they
- * are worth the vertical space.
+ * One branch inside an open city: a single line, same two columns as the city
+ * so the numbers stack straight down, plus a share bar against the city's best
+ * branch. No card chrome — hairlines separate the rows.
  */
-const BranchCard = ({ b, metric, cityBest }) => {
+const BranchRow = ({ b, metric, cityBest, first, onPress }) => {
   const value = b[metric.key];
-  // Against the CITY, not the whole estate — once a city is open, its own
-  // branches are the comparison being made.
-  const share = cityBest > 0 && value != null ? (value / cityBest) * 100 : null;
+  const share = value != null ? (n0(value) / cityBest) * 100 : null;
   const hue =
-    share == null ? T.muted2 : share >= 40 ? GOOD : share >= 20 ? MID : LOW;
+    share == null ? T.muted2 : share >= 70 ? GOOD : share >= 40 ? MID : LOW;
 
   return (
-    <View style={st.card}>
-      <View style={[st.spine, { backgroundColor: hue }]} />
-
-      <View style={st.cardTop}>
+    <TouchableOpacity
+      style={[st.branch, !first && st.branchDivider]}
+      activeOpacity={0.7}
+      onPress={onPress}
+      accessibilityRole="button"
+      accessibilityLabel={`${b.location}. ${num(b.newPatients)} new patients, ${
+        b.revenuePerNewPatient == null ? 'no' : inr(b.revenuePerNewPatient)
+      } revenue per new patient. Open trend`}
+    >
+      <View style={st.branchLine}>
+        <View style={[st.dot, { backgroundColor: hue }]} />
         <Text style={st.branchName} numberOfLines={1}>
           {b.location}
         </Text>
-        <View style={{ alignItems: 'flex-end' }}>
-          <Text style={[st.lead, { color: hue }]}>
-            {fmtValue(value, metric)}
-          </Text>
-          {share != null && (
-            <Text style={st.vsGroup}>{Math.round(share)}% of city</Text>
-          )}
-        </View>
+        <Nums x={b} metricKey={metric.key} size={15} />
+        <Icon name="show-chart" size={16} color={T.chevron} />
       </View>
-
-      <View style={st.cardTrack}>
-        <View
-          style={{
-            width: `${Math.max((n0(value) / (cityBest || 1)) * 100, 1.5)}%`,
-            height: '100%',
-            borderRadius: 2,
-            backgroundColor: hue,
-          }}
-        />
+      <View style={st.branchBarWrap}>
+        <Bar value={value} best={cityBest} color={hue} />
       </View>
-
-      {/* Every column, labelled and aligned four across — nothing hidden, and
-          the labels are what make it readable at a glance. */}
-      <View style={st.figs}>
-        <Fig label="NEW PT" value={num(b.newPatients)} />
-        <Fig label="M:F" value={`${b.male}:${b.female}`} />
-        <Fig label="OPD" value={num(b.totalOPD)} />
-        <Fig
-          label="AVG OPD"
-          value={b.avgOPDBill == null ? '—' : inr(b.avgOPDBill)}
-        />
-      </View>
-      <View style={[st.figs, st.figs2]}>
-        <Fig
-          label="CONV"
-          value={b.conversion == null ? '—' : `${b.conversion.toFixed(0)}%`}
-        />
-        <Fig label="IPD" value={num(b.ipdCount)} />
-        <Fig
-          label="AVG IPD"
-          value={b.avgIPDBill == null ? '—' : inr(b.avgIPDBill)}
-        />
-        <Fig label="PHARMACY" value={inr(b.pharmacy)} />
-      </View>
-    </View>
+    </TouchableOpacity>
   );
 };
-
-const Fig = ({ label, value }) => (
-  <View style={st.fig}>
-    <Text style={st.figLabel}>{label}</Text>
-    <Text style={[st.figVal, value === '—' && { color: T.chevron }]}>
-      {value}
-    </Text>
-  </View>
-);
 
 export default BranchSummaryScreen;
 
@@ -804,133 +838,99 @@ const st = StyleSheet.create({
 
   listHead: {
     flexDirection: 'row',
-    alignItems: 'baseline',
-    justifyContent: 'space-between',
-    marginTop: 18,
-    marginHorizontal: 6,
-    marginBottom: 0,
+    alignItems: 'flex-end',
+    gap: 8,
+    marginTop: 16,
+    paddingHorizontal: 14,
+    paddingLeft: 36, // past the rank column
   },
   listHeadText: {
     fontFamily: F.mono,
-    fontSize: 8.5,
-    letterSpacing: 1.2,
+    fontSize: 8,
+    letterSpacing: 1.1,
     color: T.muted2,
   },
   listHeadVal: {
     fontFamily: F.mono,
-    fontSize: 8.5,
-    letterSpacing: 1.2,
+    fontSize: 8,
+    letterSpacing: 0.8,
     color: T.muted2,
+    textAlign: 'right',
   },
+  listHeadOn: { color: T.brand },
 
-  // A card per city, with real space between them. A hairline on a continuous
-  // tinted ground was not enough separation — fifteen rows read as one block,
-  // and the eye had nothing to tell it where Pune ended and Mumbai began.
-  cityWrap: {
-    backgroundColor: '#F4F8F5',
-    borderWidth: 1,
-    borderColor: '#DCE7E0',
-    borderRadius: 14,
-    marginHorizontal: 16,
-    marginTop: 10,
-    overflow: 'hidden',
-  },
-  cityWrapOpen: { backgroundColor: '#EDF4EF', borderColor: T.brand },
-  city: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 10,
-    paddingVertical: 13,
-    paddingHorizontal: 16,
-  },
-  cityName: {
-    fontSize: 14.5,
-    fontFamily: F.semibold,
-    color: T.brand,
-    letterSpacing: -0.1,
-  },
-  cityMeta: { fontFamily: F.mono, fontSize: 9.5, color: T.muted, marginTop: 3 },
-  value: {
+  // Fixed number columns, shared by the header, cities and branches, so every
+  // figure on the screen lines up vertically.
+  colNew: { width: 62, alignItems: 'flex-end', textAlign: 'right' },
+  colRev: { width: 96, alignItems: 'flex-end', textAlign: 'right' },
+  growth: { fontFamily: F.mono, fontSize: 8.5, marginTop: 1 },
+  listHeadSub: { fontSize: 7, letterSpacing: 0.4, color: T.chevron },
+  statGrowth: { flexDirection: 'row', alignItems: 'baseline', marginTop: 5 },
+  statGrowthText: { fontSize: 9.5, marginTop: 0 },
+  num: {
     fontFamily: F.mono,
-    fontSize: 15,
-    letterSpacing: -0.3,
-    color: T.brand,
+    fontWeight: '700',
+    color: T.text,
+    letterSpacing: -0.4,
   },
-  rank: { width: 18, fontFamily: F.mono, fontSize: 10, color: T.muted2 },
+  numOn: { color: T.brand },
 
-  cityFigs: {
-    paddingHorizontal: 16,
-    paddingBottom: 13,
-    marginTop: -4,
-  },
-  figs: {
-    flexDirection: 'row',
-    gap: 8,
-    marginTop: 11,
-    paddingTop: 10,
-    borderTopWidth: 1,
-    // Slightly stronger than lineSoft, which disappears against the wash.
-    borderTopColor: '#DCE7E0',
-  },
-  track: {
-    height: 3,
-    borderRadius: 2,
-    backgroundColor: T.lineSoft,
-    marginTop: 8,
-    overflow: 'hidden',
-  },
-  valueCol: { alignItems: 'flex-end', minWidth: 76 },
-  vsGroup: { fontFamily: F.mono, fontSize: 9, color: T.muted2, marginTop: 3 },
-
-  // Inside the city card now, so the top border separates it from the figures
-  // above rather than floating on the page.
-  branchList: {
-    backgroundColor: T.subtle,
-    borderTopWidth: 1,
-    borderTopColor: '#DCE7E0',
-    paddingVertical: 4,
-    paddingBottom: 10,
-  },
-  card: {
+  cityWrap: {
     backgroundColor: T.card,
     borderWidth: 1,
     borderColor: T.line,
-    borderRadius: 13,
-    paddingVertical: 12,
-    paddingHorizontal: 13,
-    marginHorizontal: 10, // was 16
-    marginTop: 8,
+    borderRadius: 12,
+    marginHorizontal: 16,
+    marginTop: 7,
     overflow: 'hidden',
   },
-  spine: {
-    position: 'absolute',
-    left: 0,
-    top: 12,
-    bottom: 12,
-    width: 3,
-    borderTopRightRadius: 3,
-    borderBottomRightRadius: 3,
+  cityWrapOpen: { borderColor: T.brand },
+  city: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    paddingVertical: 10,
+    paddingLeft: 10,
+    paddingRight: 8,
   },
-  cardTop: { flexDirection: 'row', alignItems: 'center', gap: 9 },
-  branchName: { flex: 1, fontSize: 13.5, fontFamily: F.medium, color: T.text },
-  lead: { fontFamily: F.mono, fontSize: 15, letterSpacing: -0.3 },
-  cardTrack: {
-    height: 4,
-    borderRadius: 2,
-    backgroundColor: T.lineSoft,
-    marginTop: 10,
-    overflow: 'hidden',
-  },
-  figs2: { marginTop: 9, paddingTop: 9 },
-  fig: { flex: 1 },
-  figLabel: {
+  rank: {
+    width: 18,
     fontFamily: F.mono,
-    fontSize: 7,
-    letterSpacing: 0.8,
+    fontSize: 10,
     color: T.muted2,
+    textAlign: 'center',
   },
-  figVal: { fontFamily: F.mono, fontSize: 11, color: T.text, marginTop: 4 },
-  branchValue: { fontFamily: F.mono, fontSize: 12.5, color: T.text },
+  cityName: { fontSize: 12.5, fontFamily: F.medium, color: T.muted },
+  cityMeta: {
+    fontFamily: F.mono,
+    fontSize: 8.5,
+    color: T.muted2,
+    marginTop: 2,
+  },
+  bar: { height: 3, backgroundColor: T.lineSoft, overflow: 'hidden' },
+
+  branchList: {
+    backgroundColor: T.subtle,
+    borderTopWidth: 1,
+    borderTopColor: T.line,
+  },
+  branch: { paddingTop: 8, paddingBottom: 7, paddingHorizontal: 10 },
+  branchDivider: { borderTopWidth: 1, borderTopColor: T.lineSoft },
+  branchLine: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  dot: { width: 6, height: 6, borderRadius: 3, marginHorizontal: 6 },
+  branchName: {
+    flex: 1,
+    minWidth: 0,
+    fontSize: 11.5,
+    fontFamily: F.regular,
+    color: T.muted,
+  },
+  branchBarWrap: {
+    marginTop: 6,
+    marginLeft: 26,
+    borderRadius: 2,
+    overflow: 'hidden',
+  },
 
   failed: {
     backgroundColor: '#FBEDEB',

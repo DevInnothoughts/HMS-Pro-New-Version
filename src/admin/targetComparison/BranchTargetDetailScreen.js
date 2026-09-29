@@ -51,6 +51,7 @@ import {
   RevenueChart,
   GrowthChart,
   PeriodFilterModal,
+  InterbranchNote,
 } from './TargetComparisonShared';
 import {
   fetchComparisonDetail,
@@ -193,6 +194,20 @@ const ParamRow = ({ row, open, onToggle, primaryLabel, showOptimistic }) => {
             value={yoyText(row.yoy)}
             valueColor={yoyColor(row.yoy)}
           />
+
+          {/* SX and IPD Revenue only: interbranch invoices operated at this
+              branch for another branch. They belong to the source branch, so
+              they are NOT in "This year" above — shown here for reference. */}
+          {!!row.interbranch?.invoices && (
+            <DetailLine
+              label="Interbranch (not counted)"
+              value={fmtValue(row.type, row.interbranch.value)}
+              valueColor="#7A4FB0"
+              caption={`${row.interbranch.invoices} ${
+                row.interbranch.invoices === 1 ? 'invoice' : 'invoices'
+              } operated here for other branches`}
+            />
+          )}
 
           <View style={rowStyles.bodyDivider} />
 
@@ -355,6 +370,7 @@ const BranchTargetDetailScreen = ({ route, navigation }) => {
   const total = byKey('total');
   const newPat = byKey('newPatients');
   const sx = byKey('sx');
+  const ibBranch = byKey('ipdRevenue').interbranch;
 
   return (
     <SafeAreaView style={styles.safe} edges={['top']}>
@@ -402,6 +418,11 @@ const BranchTargetDetailScreen = ({ route, navigation }) => {
         </View>
       ) : (
         <ScrollView contentContainerStyle={{ padding: 14, paddingBottom: 40 }}>
+          <InterbranchNote
+            invoices={ibBranch?.invoices}
+            amount={ibBranch?.value}
+          />
+
           <View style={styles.statRow}>
             <StatCard
               title="Total Revenue (This Yr)"

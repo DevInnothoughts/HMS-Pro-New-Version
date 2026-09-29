@@ -104,6 +104,7 @@ import ReferenceReportScreen from './src/screens/ReferenceReportScreen';
 import UserFormScreen from './src/screens/UserFormScreen';
 import UserListScreen from './src/screens/UserListScreen';
 import BranchSummaryScreen from './src/screens/BranchSummaryScreen';
+import BranchTrendScreen from './src/screens/BranchTrendScreen';
 
 const Stack = createNativeStackNavigator();
 
@@ -781,6 +782,11 @@ function App(): React.JSX.Element {
               <Stack.Screen
                 name="BranchSummary"
                 component={BranchSummaryScreen}
+                options={{ headerShown: false }}
+              />
+              <Stack.Screen
+                name="BranchTrend"
+                component={BranchTrendScreen}
                 options={{ headerShown: false }}
               />
             </Stack.Navigator>

@@ -77,6 +77,50 @@ export const buildPeriodLabel = (mode, idx) => {
 };
 
 /* ------------------------------- StatCard ----------------------------- */
+// Interbranch invoices operated at this branch for another branch are left out
+// of SX, IPD Revenue, Avg IPD, Conversion and Total Revenue — they count at the
+// SOURCE branch. This banner says so wherever those figures appear, so a lower
+// number doesn't read as lost business. Renders nothing when there are none.
+export const IB_COLOR = '#7A4FB0';
+export const InterbranchNote = ({ invoices, amount, style }) => {
+  if (!invoices) return null;
+  return (
+    <View style={[ibStyles.box, style]}>
+      <Icon name="swap-horizontal" size={16} color={IB_COLOR} />
+      <Text style={ibStyles.text}>
+        <Text style={ibStyles.strong}>
+          {fmtCount(invoices)} interbranch {invoices === 1 ? 'SX' : 'SXs'} ·{' '}
+          {fmtCompact(amount)}
+        </Text>{' '}
+        operated here for other branches — not included above (counted at the
+        source branch).
+      </Text>
+    </View>
+  );
+};
+
+const ibStyles = StyleSheet.create({
+  box: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    backgroundColor: '#7A4FB012',
+    borderColor: '#7A4FB033',
+    borderWidth: 1,
+    borderRadius: 10,
+    paddingVertical: 8,
+    paddingHorizontal: 10,
+    marginBottom: 10,
+  },
+  text: {
+    flex: 1,
+    marginLeft: 7,
+    fontSize: 11.5,
+    lineHeight: 16,
+    color: '#374151',
+  },
+  strong: { fontWeight: '700', color: IB_COLOR },
+});
+
 export const StatCard = ({ title, value, sub, subColor }) => (
   <View style={s.statCard}>
     <Text style={s.statTitle}>{title}</Text>

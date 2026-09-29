@@ -11,7 +11,8 @@
 //    line rather than crashing, which is easy to miss.
 //
 // 2. The old screen tints a row amber (#FFB300) when it carries a note, and the
-//    approval flow writes those notes. If IVRCallList.js also lets a user ADD
+//    approval flow writes those notes. This screen does the same (see Row),
+//    and a note containing "spam" tints the row light red instead. If IVRCallList.js also lets a user ADD
 //    or edit a note, that is a feature this rewrite does not carry — say so and
 //    it goes back in. Notes are displayed here, not editable.
 //
@@ -67,6 +68,16 @@ const ANSWERED = '#1E7A5A';
 const MISSED = '#B3382B';
 
 const isMissed = r => String(r.call_status || '').toLowerCase() === 'missed';
+
+const noteOf = r => String(r.note || '').trim();
+
+// Whole-row highlight, as in the old IVRCallList.js: any call with a note is
+// amber (#FFB300). A note that says "spam" is light red instead, so junk calls
+// stand apart from real enquiries.
+const NOTE_BG = '#FFB300';
+const SPAM_BG = '#FFCDD2';
+const isSpamNote = note => /spam/i.test(note);
+const isSpam = r => isSpamNote(noteOf(r));
 
 const digits = p => String(p || '').replace(/\D/g, '');
 
@@ -158,11 +169,22 @@ const IVRCallsScreen = ({ navigation, route }) => {
   }, [load]);
 
   const counts = useMemo(() => {
-    const c = { all: rows.length, missed: 0, answered: 0, noted: 0 };
+    const c = {
+      all: rows.length,
+      missed: 0,
+      callback: 0, // missed calls that carry a note, i.e. someone called back
+      answered: 0,
+      noNote: 0,
+      spam: 0,
+    };
     for (const r of rows) {
-      if (isMissed(r)) c.missed++;
-      else c.answered++;
-      if (String(r.note || '').trim()) c.noted++;
+      const note = noteOf(r);
+      if (isMissed(r)) {
+        c.missed++;
+        if (note) c.callback++;
+      } else c.answered++;
+      if (!note) c.noNote++;
+      else if (isSpamNote(note)) c.spam++;
     }
     return c;
   }, [rows]);
@@ -171,8 +193,8 @@ const IVRCallsScreen = ({ navigation, route }) => {
     let out = rows;
     if (filter === 'missed') out = out.filter(isMissed);
     else if (filter === 'answered') out = out.filter(r => !isMissed(r));
-    else if (filter === 'noted')
-      out = out.filter(r => String(r.note || '').trim());
+    else if (filter === 'noNote') out = out.filter(r => !noteOf(r));
+    else if (filter === 'spam') out = out.filter(isSpam);
 
     const q = query.trim();
     if (!q) return out;
@@ -238,7 +260,13 @@ const IVRCallsScreen = ({ navigation, route }) => {
           contentContainerStyle={st.chips}
         >
           {[
-            { key: 'missed', label: 'Missed', n: counts.missed, c: MISSED },
+            {
+              key: 'missed',
+              label: 'Missed',
+              n: counts.missed,
+              sub: `${num(counts.callback)} callback`,
+              c: MISSED,
+            },
             { key: 'all', label: 'All', n: counts.all, c: HUE_L },
             {
               key: 'answered',
@@ -246,7 +274,13 @@ const IVRCallsScreen = ({ navigation, route }) => {
               n: counts.answered,
               c: ANSWERED,
             },
-            { key: 'noted', label: 'With note', n: counts.noted, c: '#B26A00' },
+            {
+              key: 'noNote',
+              label: 'Without note',
+              n: counts.noNote,
+              c: '#5C6B64',
+            },
+            { key: 'spam', label: 'Spam', n: counts.spam, c: '#C62828' },
           ].map(f => {
             const on = filter === f.key;
             return (
@@ -259,12 +293,21 @@ const IVRCallsScreen = ({ navigation, route }) => {
                 ]}
                 accessibilityRole="button"
                 accessibilityState={{ selected: on }}
-                accessibilityLabel={`${f.label}, ${f.n}`}
+                accessibilityLabel={`${f.label}, ${f.n}${
+                  f.sub ? `, ${f.sub}` : ''
+                }`}
               >
                 <Text style={[st.chipLabel, on && st.chipOnText]}>
                   {f.label}
                 </Text>
-                <Text style={[st.chipCount, on && st.chipOnText]}>{f.n}</Text>
+                <Text style={[st.chipCount, on && st.chipOnText]}>
+                  {f.n}
+                  {!!f.sub && (
+                    <Text style={[st.chipSub, on && st.chipOnText]}>
+                      {`  ·  ${f.sub}`}
+                    </Text>
+                  )}
+                </Text>
               </TouchableOpacity>
             );
           })}
@@ -349,14 +392,17 @@ const Row = ({ r, onCall }) => {
   const missed = isMissed(r);
   const hue = missed ? MISSED : ANSWERED;
   const duration = fmtDuration(r.call_duration);
-  const note = String(r.note || '').trim();
+  const note = noteOf(r);
   const destination = r.destination_name || r.destination_no || '';
+  const hl = note ? (isSpamNote(note) ? SPAM_BG : NOTE_BG) : null;
+  // On a coloured row the pale tints and grey text wash out.
+  const tint = a => (hl ? '#fff' : `${hue}${a}`);
 
   return (
-    <View style={st.row}>
+    <View style={[st.row, hl && { backgroundColor: hl, borderColor: hl }]}>
       <View style={[st.rowSpine, { backgroundColor: hue }]} />
 
-      <View style={[st.icon, { backgroundColor: `${hue}18` }]}>
+      <View style={[st.icon, { backgroundColor: tint('18') }]}>
         <Icon
           name={missed ? 'call-missed' : 'call-received'}
           size={17}
@@ -366,16 +412,13 @@ const Row = ({ r, onCall }) => {
 
       <View style={st.main}>
         <Text style={st.number}>{r.caller_no || 'Unknown number'}</Text>
-        <Text style={st.meta} numberOfLines={1}>
+        <Text style={[st.meta, hl && { color: T.text }]} numberOfLines={1}>
           {missed ? 'Missed' : duration ? `Answered · ${duration}` : 'Answered'}
           {destination ? ` · ${destination}` : ''}
           {r.circle_name ? ` · ${r.circle_name}` : ''}
         </Text>
-        {/* The old screen tinted the whole row amber when a note existed. A
-            tinted card is hard to scan past; the note itself is the signal, so
-            it is printed. */}
         {!!note && (
-          <View style={st.noteBox}>
+          <View style={[st.noteBox, hl && { backgroundColor: '#fff' }]}>
             <Text style={st.noteText}>{note}</Text>
           </View>
         )}
@@ -383,10 +426,12 @@ const Row = ({ r, onCall }) => {
 
       <View style={st.right}>
         <Text style={st.date}>{fmtIvrDate(r.call_date)}</Text>
-        <Text style={st.time}>{r.call_time || ''}</Text>
+        <Text style={[st.time, hl && { color: T.text }]}>
+          {r.call_time || ''}
+        </Text>
         <TouchableOpacity
           onPress={onCall}
-          style={[st.callBtn, { backgroundColor: `${hue}14` }]}
+          style={[st.callBtn, { backgroundColor: tint('14') }]}
           accessibilityRole="button"
           accessibilityLabel={`Call ${r.caller_no}`}
         >
@@ -463,6 +508,7 @@ const st = StyleSheet.create({
     marginTop: 3,
   },
   chipOnText: { color: '#fff' },
+  chipSub: { fontFamily: F.regular, fontSize: 10, color: T.muted },
 
   searchRow: {
     flexDirection: 'row',

@@ -62,7 +62,24 @@ const MODE_COLORS = {
 };
 const MODES = ['Cash', 'Card', 'Online', 'Cheque'];
 
-const DEFAULT_CONSULTATIONS = ['CONSULTATION', 'PROCEDURE', 'OTHER'];
+const DEFAULT_CONSULTATIONS = ['CONSULTATION', 'PROCEDURE', 'MCDPA', 'OTHER'];
+
+/**
+ * MCDPA always gets its own chip, just before OTHER — even if the server's
+ * consultationList does not include it yet (an older backend), since the
+ * filtering is done here on each row's `consultation`.
+ */
+const withMCDPA = list => {
+  if (list.includes('MCDPA')) return list;
+  const i = list.indexOf('OTHER');
+  return i === -1
+    ? [...list, 'MCDPA']
+    : [...list.slice(0, i), 'MCDPA', ...list.slice(i)];
+};
+
+// Chip text: sentence case, except acronyms.
+const chipLabel = c =>
+  c === 'MCDPA' ? c : c.charAt(0) + c.slice(1).toLowerCase();
 
 const fmtDate = d => {
   if (!d) return '—';
@@ -125,9 +142,11 @@ const OPDCollectionScreen = ({ navigation, route }) => {
         });
         setRows(res?.data || []);
         setConsultations(
-          res?.consultationList?.length
-            ? res.consultationList
-            : DEFAULT_CONSULTATIONS,
+          withMCDPA(
+            res?.consultationList?.length
+              ? res.consultationList
+              : DEFAULT_CONSULTATIONS,
+          ),
         );
       } catch (e) {
         setError(e.message);
@@ -265,7 +284,7 @@ const OPDCollectionScreen = ({ navigation, route }) => {
           {consultations.map(c => (
             <Chip
               key={c}
-              label={c.charAt(0) + c.slice(1).toLowerCase()}
+              label={chipLabel(c)}
               amount={inr(chipTotals[c] || 0)}
               on={billType === c}
               onPress={() => setBillType(billType === c ? '' : c)}

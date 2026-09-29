@@ -35,6 +35,8 @@ import {
   StatCard,
   RevenueChart,
   PeriodFilterModal,
+  InterbranchNote,
+  IB_COLOR,
 } from './TargetComparisonShared';
 import {
   fetchComparisonBranches,
@@ -750,6 +752,9 @@ const TargetComparisonScreen = ({ navigation }) => {
   const total = byKey('total');
   const newPat = byKey('newPatients');
   const sx = byKey('sx');
+  // Interbranch SX excluded across the selected branches (IPD Revenue row
+  // carries { invoices, value } from the backend).
+  const ibAll = byKey('ipdRevenue').interbranch;
 
   const q = search.trim().toLowerCase();
   const searched = q
@@ -937,6 +942,8 @@ const TargetComparisonScreen = ({ navigation }) => {
             All Branches · {MODE_LABEL[mode]}
           </Text>
 
+          <InterbranchNote invoices={ibAll?.invoices} amount={ibAll?.value} />
+
           <View style={styles.statRow}>
             <StatCard
               title="Total Revenue (This Yr)"
@@ -1078,6 +1085,12 @@ const TargetComparisonScreen = ({ navigation }) => {
                       {fmtCompact(b.thisYear)} · {b.yoy >= 0 ? '+' : ''}
                       {b.yoy.toFixed(1)}% YoY
                     </Text>
+                    {!!b.ipdInterbranch?.invoices && (
+                      <Text style={[styles.branchSub, { color: IB_COLOR }]}>
+                        Excl. {b.ipdInterbranch.invoices} interbranch SX ·{' '}
+                        {fmtCompact(b.ipdInterbranch.amount)}
+                      </Text>
+                    )}
                   </View>
                   <View style={{ alignItems: 'flex-end', marginRight: 8 }}>
                     <Text style={[styles.achVal, { color: achColor(b.ach) }]}>

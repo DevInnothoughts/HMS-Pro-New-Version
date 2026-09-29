@@ -44,6 +44,7 @@ import {
   RankedList,
   CardGrid,
   BreakdownList,
+  CountTable,
 } from '../design/components/blocks';
 import {
   Card,
@@ -259,6 +260,21 @@ const SectionScreen = ({ navigation, route }) => {
                 <View key={b.key} style={st.block}>
                   <SectionHead label={b.label} />
                   <CardGrid cards={b.data.cards} note={b.data.note} />
+                </View>
+              );
+            }
+
+            if (b.kind === 'counts') {
+              return (
+                <View key={b.key} style={st.block}>
+                  <SectionHead label={b.label} />
+                  <CountTable
+                    columns={b.data.columns}
+                    rows={b.data.rows}
+                    foot={b.data.foot}
+                    note={b.data.note}
+                    hue={hue}
+                  />
                 </View>
               );
             }

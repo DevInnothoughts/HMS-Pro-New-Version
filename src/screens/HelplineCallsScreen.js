@@ -76,6 +76,15 @@ const KINDS = {
 
 const digits = p => String(p || '').replace(/\D/g, '');
 
+const noteOf = r => String(r.note || '').trim();
+
+// Whole-row highlight, same as the IVR screen: any call with a note is amber
+// (#FFB300); a note that says "spam" is light red instead.
+const NOTE_BG = '#FFB300';
+const SPAM_BG = '#FFCDD2';
+const isSpamNote = note => /spam/i.test(note);
+const isSpam = r => isSpamNote(noteOf(r));
+
 const MONTHS = [
   'Jan',
   'Feb',
@@ -170,32 +179,25 @@ const HelplineCallsScreen = ({ navigation, route }) => {
       missed: 0,
       incoming: 0,
       outgoing: 0,
-      noted: 0,
+      callback: 0, // missed calls that carry a note — same rule as IVR
+      noNote: 0,
+      spam: 0,
     };
     for (const r of rows) {
-      c[kindOf(r)]++;
-      if (String(r.note || '').trim()) c.noted++;
+      const kind = kindOf(r);
+      const note = noteOf(r);
+      c[kind]++;
+      if (kind === 'missed' && note) c.callback++;
+      if (!note) c.noNote++;
+      else if (isSpamNote(note)) c.spam++;
     }
     return c;
   }, [rows]);
 
-  /**
-   * Numbers the branch called back, so a missed call can say whether anyone
-   * returned it. Built from the outgoing rows in the SAME window — a call-back
-   * made the next morning on a one-day range will not be seen, which is worth
-   * knowing before reading "not returned" as neglect.
-   */
-  const calledBack = useMemo(() => {
-    const set = new Set();
-    for (const r of rows) {
-      if (kindOf(r) === 'outgoing') set.add(digits(r.phoneNumber));
-    }
-    return set;
-  }, [rows]);
-
   const list = useMemo(() => {
     let out = rows;
-    if (filter === 'noted') out = out.filter(r => String(r.note || '').trim());
+    if (filter === 'noNote') out = out.filter(r => !noteOf(r));
+    else if (filter === 'spam') out = out.filter(isSpam);
     else if (filter !== 'all') out = out.filter(r => kindOf(r) === filter);
 
     const q = query.trim();
@@ -262,7 +264,13 @@ const HelplineCallsScreen = ({ navigation, route }) => {
           contentContainerStyle={st.chips}
         >
           {[
-            { key: 'missed', label: 'Missed', n: counts.missed, c: MISSED },
+            {
+              key: 'missed',
+              label: 'Missed',
+              n: counts.missed,
+              sub: `${num(counts.callback)} callback`,
+              c: MISSED,
+            },
             { key: 'all', label: 'All', n: counts.all, c: HUE_L },
             {
               key: 'incoming',
@@ -276,7 +284,13 @@ const HelplineCallsScreen = ({ navigation, route }) => {
               n: counts.outgoing,
               c: OUTGOING,
             },
-            { key: 'noted', label: 'With note', n: counts.noted, c: '#B26A00' },
+            {
+              key: 'noNote',
+              label: 'Without note',
+              n: counts.noNote,
+              c: '#5C6B64',
+            },
+            { key: 'spam', label: 'Spam', n: counts.spam, c: '#C62828' },
           ].map(f => {
             const on = filter === f.key;
             return (
@@ -289,12 +303,21 @@ const HelplineCallsScreen = ({ navigation, route }) => {
                 ]}
                 accessibilityRole="button"
                 accessibilityState={{ selected: on }}
-                accessibilityLabel={`${f.label}, ${f.n}`}
+                accessibilityLabel={`${f.label}, ${f.n}${
+                  f.sub ? `, ${f.sub}` : ''
+                }`}
               >
                 <Text style={[st.chipLabel, on && st.chipOnText]}>
                   {f.label}
                 </Text>
-                <Text style={[st.chipCount, on && st.chipOnText]}>{f.n}</Text>
+                <Text style={[st.chipCount, on && st.chipOnText]}>
+                  {f.n}
+                  {!!f.sub && (
+                    <Text style={[st.chipSub, on && st.chipOnText]}>
+                      {`  ·  ${f.sub}`}
+                    </Text>
+                  )}
+                </Text>
               </TouchableOpacity>
             );
           })}
@@ -357,11 +380,7 @@ const HelplineCallsScreen = ({ navigation, route }) => {
           )
         }
         renderItem={({ item }) => (
-          <Row
-            r={item}
-            returned={calledBack.has(digits(item.phoneNumber))}
-            onCall={() => call(item.phoneNumber)}
-          />
+          <Row r={item} onCall={() => call(item.phoneNumber)} />
         )}
       />
     </SafeAreaView>
@@ -380,17 +399,21 @@ const Stat = ({ label, value, note, color }) => (
   </View>
 );
 
-const Row = ({ r, returned, onCall }) => {
+const Row = ({ r, onCall }) => {
   const kind = kindOf(r);
   const meta = KINDS[kind];
   const duration = fmtDuration(r.duration);
-  const note = String(r.note || '').trim();
+  const note = noteOf(r);
+  const hl = note ? (isSpamNote(note) ? SPAM_BG : NOTE_BG) : null;
+  // On a coloured row the pale tints and grey text wash out.
+  const tint = a => (hl ? '#fff' : `${meta.color}${a}`);
+  const dark = hl && { color: T.text };
 
   return (
-    <View style={st.row}>
+    <View style={[st.row, hl && { backgroundColor: hl, borderColor: hl }]}>
       <View style={[st.rowSpine, { backgroundColor: meta.color }]} />
 
-      <View style={[st.icon, { backgroundColor: `${meta.color}18` }]}>
+      <View style={[st.icon, { backgroundColor: tint('18') }]}>
         <Icon name={meta.icon} size={17} color={meta.color} />
       </View>
 
@@ -403,34 +426,18 @@ const Row = ({ r, returned, onCall }) => {
             {r.name}
           </Text>
         )}
-        <Text style={[st.number, !!r.name && st.numberSmall]}>
+        <Text style={[st.number, !!r.name && st.numberSmall, !!r.name && dark]}>
           {r.phoneNumber || 'Unknown number'}
         </Text>
 
         <View style={st.tagRow}>
           <Text style={[st.kind, { color: meta.color }]}>{meta.label}</Text>
-          {!!duration && <Text style={st.dot}>·</Text>}
-          {!!duration && <Text style={st.duration}>{duration}</Text>}
-          {/* The sharpest signal on this screen: a missed call nobody rang
-              back. Only shown on missed rows — on an answered call it would
-              be noise. */}
-          {kind === 'missed' && (
-            <>
-              <Text style={st.dot}>·</Text>
-              <Text
-                style={[
-                  st.returned,
-                  returned ? { color: ANSWERED } : { color: MISSED },
-                ]}
-              >
-                {returned ? 'Called back' : 'Not returned'}
-              </Text>
-            </>
-          )}
+          {!!duration && <Text style={[st.dot, dark]}>·</Text>}
+          {!!duration && <Text style={[st.duration, dark]}>{duration}</Text>}
         </View>
 
         {!!note && (
-          <View style={st.noteBox}>
+          <View style={[st.noteBox, hl && { backgroundColor: '#fff' }]}>
             <Text style={st.noteText}>{note}</Text>
           </View>
         )}
@@ -438,10 +445,10 @@ const Row = ({ r, returned, onCall }) => {
 
       <View style={st.right}>
         <Text style={st.date}>{fmtDay(r.timestamp)}</Text>
-        <Text style={st.time}>{fmtTime(r.timestamp)}</Text>
+        <Text style={[st.time, dark]}>{fmtTime(r.timestamp)}</Text>
         <TouchableOpacity
           onPress={onCall}
-          style={[st.callBtn, { backgroundColor: `${meta.color}14` }]}
+          style={[st.callBtn, { backgroundColor: tint('14') }]}
           accessibilityRole="button"
           accessibilityLabel={`Call ${r.phoneNumber}`}
         >
@@ -518,6 +525,7 @@ const st = StyleSheet.create({
     marginTop: 3,
   },
   chipOnText: { color: '#fff' },
+  chipSub: { fontFamily: F.regular, fontSize: 10, color: T.muted },
 
   searchRow: {
     flexDirection: 'row',
@@ -595,7 +603,6 @@ const st = StyleSheet.create({
   kind: { fontFamily: F.mono, fontSize: 9.5, letterSpacing: 0.6 },
   dot: { fontSize: 9.5, color: T.chevron },
   duration: { fontFamily: F.mono, fontSize: 9.5, color: T.muted2 },
-  returned: { fontFamily: F.mono, fontSize: 9.5, letterSpacing: 0.4 },
 
   noteBox: {
     borderLeftWidth: 2,

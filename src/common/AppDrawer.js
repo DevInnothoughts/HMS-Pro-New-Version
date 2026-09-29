@@ -198,7 +198,7 @@ const AppDrawer = ({
               It also has to clear the `nav.length > 1` gate below — a
               SuperAdmin with one module would otherwise lose this row along
               with the menu-of-one. */}
-          {/* {role === 'SuperAdmin' && (
+          {role === 'SuperAdmin' && (
             <TouchableOpacity
               onPress={() => {
                 onClose();
@@ -223,7 +223,7 @@ const AppDrawer = ({
                 Branch Summary
               </Text>
             </TouchableOpacity>
-          )} */}
+          )}
 
           {/* .navItem — only shown when there's more than one module to switch
               between. A ticketing-only user has a single destination, so the

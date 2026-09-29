@@ -128,19 +128,35 @@ export const Legend = ({
 }) => (
   <View>
     <View style={s.legend}>
-      {rows.map((r, i) => (
-        <View
-          key={r.key || r.label}
-          style={[s.legRow, i === rows.length - 1 && { borderBottomWidth: 0 }]}
-        >
-          <View style={[s.sw, { backgroundColor: r.color }]} />
-          <Text style={s.legName}>{r.label}</Text>
-          {/* Falls back to the percentage when no note is supplied, so the
-              screens still using pct (OPD Collection) are unaffected. */}
-          <Text style={s.legNote}>{r.note ?? `${r.pct}%`}</Text>
-          <Text style={s.legAmt}>{r.amount}</Text>
-        </View>
-      ))}
+      {rows.map((r, i) => {
+        const last = i === rows.length - 1;
+        const row = (
+          <View
+            key={r.key || r.label}
+            style={[s.legRow, (last || r.sub) && { borderBottomWidth: 0 }]}
+          >
+            <View style={[s.sw, { backgroundColor: r.color }]} />
+            <Text style={s.legName}>{r.label}</Text>
+            {/* Falls back to the percentage when no note is supplied, so the
+                screens still using pct (OPD Collection) are unaffected. */}
+            <Text style={s.legNote}>{r.note ?? `${r.pct}%`}</Text>
+            <Text style={s.legAmt}>{r.amount}</Text>
+          </View>
+        );
+        // Optional explanatory line under a row (e.g. IPD interbranch
+        // exclusion). Rows without `sub` render exactly as before.
+        return r.sub ? (
+          <View
+            key={r.key || r.label}
+            style={[s.legSubWrap, last && { borderBottomWidth: 0 }]}
+          >
+            {row}
+            <Text style={s.legSub}>{r.sub}</Text>
+          </View>
+        ) : (
+          row
+        );
+      })}
     </View>
     {total !== undefined && (
       <View style={s.totalRow}>
@@ -505,6 +521,20 @@ const s = StyleSheet.create({
     color: T.muted2,
     width: 64,
     textAlign: 'right',
+  },
+  // Row + explanatory line share one bottom border.
+  legSubWrap: {
+    borderBottomWidth: 1,
+    borderBottomColor: T.lineSoft,
+    paddingBottom: 7,
+  },
+  legSub: {
+    fontSize: 10,
+    lineHeight: 14,
+    color: '#7A4FB0', // interbranch accent, as on the IPD invoice screens
+    fontFamily: F.regular,
+    marginLeft: 17, // aligns under the label, past the swatch
+    marginTop: -3,
   },
 });
 

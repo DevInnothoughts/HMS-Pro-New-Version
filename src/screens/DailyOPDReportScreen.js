@@ -321,17 +321,6 @@ const DailyOPDReportScreen = ({ navigation, route }) => {
                 <AmountList rows={data.testReport} hue="#6E5AA8" />
               </Block>
             )}
-
-            {/* ── Records completed ── */}
-            <Block label="Records completed">
-              <View style={st.pairRow}>
-                <Mini label="Diagnosis" value={num(data.diagnosisCount ?? 0)} />
-                <Mini
-                  label="Prescriptions"
-                  value={num(data.prescriptionCount ?? 0)}
-                />
-              </View>
-            </Block>
           </View>
         )}
       </ScrollView>
@@ -388,13 +377,6 @@ const AmountList = ({ rows, hue }) => {
     </View>
   );
 };
-
-const Mini = ({ label, value }) => (
-  <View style={st.mini}>
-    <Text style={st.cellLabel}>{label.toUpperCase()}</Text>
-    <Text style={st.miniVal}>{value}</Text>
-  </View>
-);
 
 export default DailyOPDReportScreen;
 
@@ -514,22 +496,4 @@ const st = StyleSheet.create({
   tNum: { textAlign: 'right' },
   tBold: { fontWeight: '600' },
   tZero: { color: T.chevron },
-
-  pairRow: { flexDirection: 'row', gap: 9 },
-  mini: {
-    flex: 1,
-    backgroundColor: T.card,
-    borderWidth: 1,
-    borderColor: T.line,
-    borderRadius: 12,
-    paddingVertical: 12,
-    paddingHorizontal: 12,
-  },
-  miniVal: {
-    fontFamily: F.mono,
-    fontSize: 20,
-    color: T.text,
-    marginTop: 6,
-    letterSpacing: -0.4,
-  },
 });

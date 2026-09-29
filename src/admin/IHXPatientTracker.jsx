@@ -1112,7 +1112,7 @@ export function PatientListScreen({ data = [], onSelectPatient, navigation }) {
 
 // ─── Root (no external navigation library required) ───────────────────────────
 
-const BACKEND_URL = 'http://10.0.0.30:5100/hms';
+const BACKEND_URL = 'https://wedoc.in/hms';
 const getISTDate = date => {
   const now = new Date(date);
 

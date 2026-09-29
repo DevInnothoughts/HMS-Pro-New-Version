@@ -5,7 +5,7 @@
 // payloads into the exact strings the UI renders.
 //
 // Why the selectors live here and not in the screens: HomeScreen and
-// SectionScreen need the SAME derived numbers (a tile says "₹78,400 today", the
+// SectionScreen need the SAME derived numbers (a tile says "₹78,400", the
 // Lab section says "Revenue ₹78,400"). Deriving them twice is how two screens
 // end up disagreeing.
 //
@@ -16,11 +16,14 @@
 
 import { get } from './client';
 import { dec1, inr, num } from '../design/tokens';
-import { fetchSection } from './sections';
 
 /** GET /hms/Dashboard — unchanged, the same call AdminHome has always made. */
 export const fetchDashboard = (location, from, to) =>
   get('/Dashboard', { location, from, to });
+
+/** GET /hms/overview/leadCounts — Home's Leads card: source + count only. */
+export const fetchLeadCounts = (location, from, to) =>
+  get('/overview/leadCounts', { location, from, to });
 
 /** GET /hms/overview/collection — the one new endpoint. */
 export const fetchCollection = (location, from, to) =>
@@ -35,7 +38,7 @@ export async function fetchHome(location, from, to) {
   const [d, c, l] = await Promise.allSettled([
     fetchDashboard(location, from, to),
     fetchCollection(location, from, to),
-    fetchSection('leads', location, from, to, null),
+    fetchLeadCounts(location, from, to),
   ]);
   return {
     dashboard: d.status === 'fulfilled' ? d.value : null,
@@ -95,7 +98,16 @@ export const selectToday = ({ dashboard }) =>
       value: n(dashboard?.appointment_count),
       route: 'AppointmentDetails',
     },
-    { label: 'IPD', value: n(dashboard?.ipd_count), route: 'IPDBillDetails' },
+    {
+      label: 'IPD',
+      value: n(dashboard?.ipd_count),
+      route: 'IPDBillDetails',
+      // Interbranch cases operated here are not in ipd_count — see ibCount.
+      note:
+        ibCount(dashboard) > 0
+          ? `+${num(ibCount(dashboard))} interbranch excl.`
+          : undefined,
+    },
     // {
     //   label: 'Discharges',
     //   value: n(dashboard?.dc_count),
@@ -122,6 +134,15 @@ export const selectCollection = ({ collection }) => {
         d.avg == null
           ? '—'
           : `${inr(d.avg)}/${d.countBasis === 'invoices' ? 'inv' : 'pt'}`,
+      // IPD revenue excludes interbranch invoices (they count at the source
+      // branch); a line under the row says how much, so the figure explains
+      // itself. Rendered by Legend when present.
+      sub:
+        d.key === 'ipd' && d.interbranch?.count > 0
+          ? `Excl. ${inr(d.interbranch.amount)} · ${num(
+              d.interbranch.count,
+            )} interbranch (counted at source branch)`
+          : undefined,
     })),
   };
 };
@@ -241,17 +262,33 @@ function clean(obj) {
   return Object.fromEntries(Object.entries(obj).filter(([, v]) => v != null));
 }
 
-/** The one-line stat under each department tile on the home grid. */
+/**
+ * Interbranch invoices operated at this branch for another branch are NOT in
+ * the IPD count or IPD revenue (they count at the source branch). These lines
+ * say so beside the figure, so a lower number doesn't read as lost business.
+ * Source: /Dashboard ipd_interbranch_count.
+ */
+const ibCount = dashboard => n(dashboard?.ipd_interbranch_count) ?? 0;
+
+/**
+ * The one-line stat under each department tile on the home grid.
+ * No "today" suffix — the figures follow the selected date range, not just today.
+ */
 export function selectTileStat(sectionId, data) {
   const m = selectSectionMetrics(sectionId, data);
   switch (sectionId) {
     case 'opd':
-      return m.newPatients ? `${m.newPatients} new today` : null;
+      return m.newPatients ? `${m.newPatients} new` : null;
     case 'ipd':
-      return m.admissions ? `${m.admissions} admissions` : null;
+      if (!m.admissions) return null;
+      return ibCount(data?.dashboard) > 0
+        ? `${m.admissions} admissions · ${num(
+            ibCount(data.dashboard),
+          )} IB excl.`
+        : `${m.admissions} admissions`;
     case 'lab':
     case 'pharmacy':
-      return m.revenue ? `${m.revenue} today` : null;
+      return m.revenue ? `${m.revenue}` : null;
     case 'leads':
       return m.callsHandled ? `${m.callsHandled} calls handled` : null;
     case 'performance':
@@ -274,44 +311,42 @@ const LEAD_ROUTES = {
   web: 'WebLeads',
   chatbot: 'BotLeads',
   ivr: 'IVRCall',
+  webcall: 'WebCallLeads',
+  aggregator: 'PartnerLeads',
   sulekha: 'PartnerLeads',
   hexa: 'PartnerLeads',
 };
-export const selectLeadsFunnel = leads => {
-  const channels = leads?.channels || [];
-  if (!channels.length) return null;
-  const t = leads.totals || {};
+// The five sources, always shown in this order — matches CHANNELS in the
+// backend's overview/leadsModel.js. Used as the fallback when a source is
+// missing from the response (or the call failed), so the card keeps its shape.
+const LEAD_SOURCES = [
+  { key: 'ivr', label: 'IVR' },
+  { key: 'web', label: 'Website' },
+  { key: 'chatbot', label: 'Chatbot' },
+  { key: 'webcall', label: 'Web call' },
+  { key: 'aggregator', label: 'Aggregator' },
+];
+
+/**
+ * Home's Leads card: source name + lead count, nothing else.
+ * `counts` is GET /overview/leadCounts. A missing response shows '—' rather
+ * than 0, so a failed call never reads as "no leads".
+ */
+export const selectLeadSources = counts => {
+  const byKey = {};
+  for (const c of counts?.channels || []) byKey[c.key] = c;
   return {
-    rows: channels.map(c => ({
-      key: c.key,
-      label: c.label,
-      route: LEAD_ROUTES[c.key] || null,
-      // Both partner sources land on the same screen, so the source tab is
-      // preselected — otherwise tapping Aggregator opens a list showing
-      // Sulekha too, and the count would not match the row you tapped.
-      params:
-        c.key === 'hexa'
-          ? { sourceFilter: 'Hexa' }
-          : c.key === 'sulekha'
-          ? { sourceFilter: 'Sulekha' }
-          : null,
-      leads: num(c.total),
-      appointment: num(c.appointment),
-      visited: num(c.visited),
-      ipd: num(c.ipd),
-      conversionPct:
-        c.total > 0 ? Math.round((c.appointment / c.total) * 100) : null,
-    })),
-    foot: {
-      label: 'ALL',
-      leads: num(t.total),
-      appointment: num(t.appointment),
-      visited: num(t.visited),
-      ipd: num(t.ipd),
-    },
-    // Visits are counted inside the window only, so conversion understates
-    // near the end of a range — the same caveat the Leads section carries.
-    note: 'Conversion is appointments as a share of leads. Visits are counted within the selected period.',
+    rows: LEAD_SOURCES.map(src => {
+      const c = byKey[src.key];
+      return {
+        key: src.key,
+        label: c?.label || src.label,
+        count: c ? num(c.total) : '—',
+        route: LEAD_ROUTES[src.key] || null,
+        params: null,
+      };
+    }),
+    total: counts ? num(counts.total) : '—',
   };
 };
 

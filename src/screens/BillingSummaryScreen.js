@@ -21,6 +21,13 @@
 // that way, so the three stream cards deliberately do not add up to the total
 // and the screen says so rather than leaving someone to check the arithmetic.
 //
+// ── INTERBRANCH ─────────────────────────────────────────────────────────────
+// IPD billed (and so the grand total) is NET of interbranch invoices: a surgery
+// operated at one branch for another branch's patient counts at the SOURCE
+// branch only, so the group total counts it once. The server reports what it
+// left out as ipdInvoice.interbranch — shown under the stream cards, on each
+// branch row that has any, and as a row in the IPD-by-type breakdown.
+//
 // ── NO STACKED BAR, DELIBERATELY ───────────────────────────────────────────
 // IPD is routinely over 90% of a branch's billing. In a stacked bar that
 // leaves OPD and Pharmacy as one-pixel slivers — the chart shows a solid block
@@ -68,6 +75,9 @@ const STREAMS = [
 ];
 
 const n0 = v => Number(v) || 0;
+
+// Interbranch accent — the same purple the IPD invoice screens use.
+const IB = '#7A4FB0';
 
 const MONTHS = [
   'Jan',
@@ -264,6 +274,31 @@ const BillingSummaryScreen = ({ navigation, route }) => {
             );
           })}
         </View>
+
+        {/* What the IPD figure (and so the total) left out. */}
+        {n0(summary?.ipdInvoice?.interbranch?.invoices) > 0 && (
+          <View style={st.ibNote}>
+            <Icon name="swap-horiz" size={15} color={IB} />
+            <Text style={st.ibNoteText}>
+              <Text style={st.ibStrong}>
+                IPD excludes {inrCompact(summary.ipdInvoice.interbranch.amount)}{' '}
+                · {num(summary.ipdInvoice.interbranch.invoices)} interbranch{' '}
+                {summary.ipdInvoice.interbranch.invoices === 1
+                  ? 'invoice'
+                  : 'invoices'}
+              </Text>{' '}
+              operated at one branch for another branch's patient — counted at
+              the source branch, so the group total counts each once.
+            </Text>
+          </View>
+        )}
+        {!!summary?.ipdInvoice?.interbranch?.failedBranches?.length && (
+          <Text style={[st.note, { color: '#B26A00' }]}>
+            Interbranch check failed for{' '}
+            {summary.ipdInvoice.interbranch.failedBranches.join(', ')} — their
+            IPD is shown gross.
+          </Text>
+        )}
 
         {/* IPD collection is reported but is NOT in the grand total — the
             BILLED invoice amount is. Said once here rather than discovered by
@@ -511,6 +546,19 @@ const BranchRow = ({ b, rank, groupTotal, open, onToggle }) => {
         })}
       </View>
 
+      {n0(b.ipdInvoice?.interbranch?.invoices) > 0 && (
+        <Text style={st.ibRowNote} numberOfLines={1}>
+          IPD excl. {inrCompact(b.ipdInvoice.interbranch.amount)} ·{' '}
+          {num(b.ipdInvoice.interbranch.invoices)} interbranch (counted at
+          source)
+        </Text>
+      )}
+      {!!b.ipdInvoice?.interbranch?.failed && (
+        <Text style={[st.ibRowNote, { color: '#B26A00' }]} numberOfLines={1}>
+          Interbranch check failed — IPD shown gross
+        </Text>
+      )}
+
       {open && (
         <View style={st.detail}>
           <Block label="OPD" color="#2F6FA8" d={b.opd} />
@@ -552,6 +600,17 @@ const BranchRow = ({ b, rank, groupTotal, open, onToggle }) => {
                   {inr(b.ipdInvoice.total)}
                 </Text>
               </View>
+              {/* Already taken out of the types and total above. */}
+              {n0(b.ipdInvoice.interbranch?.invoices) > 0 && (
+                <View style={st.statusRow}>
+                  <Text style={[st.statusName, { color: IB }]}>
+                    Interbranch excl. ({num(b.ipdInvoice.interbranch.invoices)})
+                  </Text>
+                  <Text style={[st.statusVal, { color: IB }]}>
+                    {inr(b.ipdInvoice.interbranch.amount)}
+                  </Text>
+                </View>
+              )}
             </View>
           )}
         </View>
@@ -564,6 +623,32 @@ export default BillingSummaryScreen;
 
 const st = StyleSheet.create({
   screen: { flex: 1, backgroundColor: T.canvas },
+  ibNote: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 7,
+    marginTop: 10,
+    paddingVertical: 8,
+    paddingHorizontal: 10,
+    borderRadius: 10,
+    backgroundColor: `${IB}12`,
+    borderWidth: 1,
+    borderColor: `${IB}33`,
+  },
+  ibNoteText: {
+    flex: 1,
+    fontSize: 11,
+    lineHeight: 16,
+    color: T.text,
+    fontFamily: F.regular,
+  },
+  ibStrong: { color: IB, fontFamily: F.semibold },
+  ibRowNote: {
+    fontSize: 10,
+    color: IB,
+    fontFamily: F.regular,
+    marginTop: 6,
+  },
   centre: { paddingVertical: 50, alignItems: 'center' },
   loadingNote: {
     fontSize: 11.5,

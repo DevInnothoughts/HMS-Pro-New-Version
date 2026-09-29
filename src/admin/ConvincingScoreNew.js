@@ -374,7 +374,7 @@ const ConvincingScoreV1 = ({ navigation }) => {
   const [insights, setInsights] = useState(null);
   const [metricModal, setMetricModal] = useState(null); // { key, label }
 
-  const BACKEND_URL = 'http://10.0.0.30:5100/hms';
+  const BACKEND_URL = 'https://wedoc.in/hms';
 
   const generateMonthsList = () => {
     const currentDate = new Date();
@@ -662,6 +662,24 @@ const ConvincingScoreV1 = ({ navigation }) => {
             }
           />
         </View>
+
+        {/* Interbranch surgeries operated here for another branch are NOT in
+            Surgeries Performed or any doctor's score — they count at the
+            source branch. Said here so the lower number explains itself. */}
+        {branchTotal.interbranchExcluded?.invoices > 0 && (
+          <View style={styles.ibNote}>
+            <Text style={styles.ibNoteText}>
+              <Text style={styles.ibNoteStrong}>
+                {nf(branchTotal.interbranchExcluded.invoices)} interbranch{' '}
+                {branchTotal.interbranchExcluded.invoices === 1
+                  ? 'surgery'
+                  : 'surgeries'}
+              </Text>{' '}
+              operated here for other branches are not counted in Surgeries
+              Performed or doctor scores — they count at the source branch.
+            </Text>
+          </View>
+        )}
 
         {/* 3 — Tabs (sticky) */}
         <View style={styles.tabsSticky}>
@@ -995,6 +1013,23 @@ const styles = StyleSheet.create({
     marginTop: 10,
     fontStyle: 'italic',
   },
+  ibNote: {
+    marginHorizontal: 14,
+    marginTop: 8,
+    paddingVertical: 8,
+    paddingHorizontal: 10,
+    borderRadius: 10,
+    backgroundColor: '#7A4FB012',
+    borderWidth: 1,
+    borderColor: '#7A4FB033',
+  },
+  ibNoteText: {
+    fontFamily: 'Lexend-Regular',
+    fontSize: 11.5,
+    lineHeight: 16,
+    color: '#374151',
+  },
+  ibNoteStrong: { fontWeight: '700', color: '#7A4FB0' },
 
   listContent: { padding: 14, paddingBottom: 32 },
 

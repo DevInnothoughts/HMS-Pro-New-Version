@@ -100,7 +100,7 @@ export const buildSummaryWorkbook = (data, fromStr, toStr) => {
   const IPC_START = c;
   c += 5; // Cash, Card, Cheque, Online, Total
   const INV_START = c;
-  c += statuses.length + 1; // statuses..., Total
+  c += statuses.length + 2; // statuses..., Total, Interbranch excl.
   const PH_START = c;
   c += 4; // Cash, Card, Online, Total
   const GT = c++;
@@ -129,6 +129,8 @@ export const buildSummaryWorkbook = (data, fromStr, toStr) => {
   );
   statuses.forEach((st, i) => (sub[INV_START + i] = st));
   sub[INV_START + statuses.length] = 'Total';
+  // Already deducted from the statuses and Total — shown for reference.
+  sub[INV_START + statuses.length + 1] = 'Interbranch excl.';
   ['Cash', 'Card', 'Online', 'Total'].forEach(
     (h, i) => (sub[PH_START + i] = h),
   );
@@ -151,6 +153,9 @@ export const buildSummaryWorkbook = (data, fromStr, toStr) => {
       (st, i) => (row[INV_START + i] = num(b.ipdInvoice?.byStatus?.[st])),
     );
     row[INV_START + statuses.length] = num(b.ipdInvoice?.total);
+    row[INV_START + statuses.length + 1] = num(
+      b.ipdInvoice?.interbranch?.amount,
+    );
     row[PH_START] = num(b.pharmacy?.cash);
     row[PH_START + 1] = num(b.pharmacy?.card);
     row[PH_START + 2] = num(b.pharmacy?.online);
@@ -174,6 +179,18 @@ export const buildSummaryWorkbook = (data, fromStr, toStr) => {
     grandTotal: s.grandTotal,
   });
   aoa.push(totalRow);
+
+  // Explain the interbranch column once, under the table.
+  if (num(s.ipdInvoice?.interbranch?.amount) > 0) {
+    aoa.push(blankRow());
+    const note = blankRow();
+    note[0] =
+      'IPD Invoice is NET of interbranch invoices (operated at one branch for ' +
+      "another branch's patient — counted at the source branch). The " +
+      "'Interbranch excl.' column shows what was left out; it is already " +
+      'deducted from the IPD statuses, IPD Total and Grand Total.';
+    aoa.push(note);
+  }
 
   // Optional: list branches that failed to load
   let errorStartIdx = -1;
@@ -200,7 +217,10 @@ export const buildSummaryWorkbook = (data, fromStr, toStr) => {
     { s: { r: 1, c: GT }, e: { r: 2, c: GT } },
     { s: { r: 1, c: OPD_START }, e: { r: 1, c: OPD_START + 3 } },
     { s: { r: 1, c: IPC_START }, e: { r: 1, c: IPC_START + 4 } },
-    { s: { r: 1, c: INV_START }, e: { r: 1, c: INV_START + statuses.length } },
+    {
+      s: { r: 1, c: INV_START },
+      e: { r: 1, c: INV_START + statuses.length + 1 },
+    },
     { s: { r: 1, c: PH_START }, e: { r: 1, c: PH_START + 3 } },
   ];
 

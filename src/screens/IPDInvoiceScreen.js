@@ -20,6 +20,15 @@
 // The invoice list below is unfiltered, so it can run to hundreds of rows on a
 // month range. It gets its own search box — without one the sub-pages would be
 // the only way to find a patient.
+//
+// INTERBRANCH (billsV5)
+// ─────────────────────
+// A patient seen in OPD at branch A but operated at branch B has the same
+// invoice in both branch DBs. The revenue belongs to the SOURCE branch (A).
+// On the operating branch (B) the row has interbranch_role 'operating' and
+// counted 0: it stays in the list, labelled, but is left out of Billed,
+// Patients, Avg, Discount, Due and the per-type rows. statusWiseTotals from
+// V5 already exclude it server-side.
 // ─────────────────────────────────────────────────────────────────────────────
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
@@ -44,6 +53,8 @@ import { F, HUE, T, inr, num } from '../design/tokens';
 import useScopeRange from '../scope/useScopeRange';
 
 const HUE_I = HUE.ipd;
+// Interbranch accent — matches the band on IPDInvoiceRow.
+const IB = '#7A4FB0';
 
 // The five invoice.status values, in the business's own order. Anything else
 // the column contains is appended rather than dropped — an unknown status is a
@@ -86,13 +97,15 @@ const IPDInvoiceScreen = ({ navigation, route }) => {
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState('');
   const [query, setQuery] = useState('');
+  // '' = all invoices, 'IB' = interbranch invoices only.
+  const [listFilter, setListFilter] = useState('');
 
   const load = useCallback(
     async (quiet = false) => {
       if (!quiet) setLoading(true);
       setError('');
       try {
-        const res = await get('/IPDCollection/billsV4', {
+        const res = await get('/IPDCollection/billsV5', {
           location,
           from,
           to,
@@ -116,29 +129,80 @@ const IPDInvoiceScreen = ({ navigation, route }) => {
 
   // Totals cover every invoice, not the search result — the cards describe the
   // period, and a summary that shrank as you typed would be unreadable.
+  // Only invoices that belong to this branch. Operating-branch copies of an
+  // interbranch invoice (counted === 0) are listed but never totalled.
+  const counted = useMemo(
+    () => bills.filter(b => Number(b.counted ?? 1) !== 0),
+    [bills],
+  );
+
   const summary = useMemo(() => {
     let amount = 0;
     let discount = 0;
     let due = 0;
-    for (const b of bills) {
+    for (const b of counted) {
       amount += n0(b.totalamt);
       discount += n0(b.discount);
       due += n0(b.totaldue);
     }
-    const patients = new Set(bills.map(b => b.patient_id)).size;
+    const patients = new Set(counted.map(b => b.patient_id)).size;
+
+    // Header split. Origin = this branch's own billing (the counted rows —
+    // includes source-side interbranch copies such as DP Road). Interbranch =
+    // operated here for another branch (counted === 0). Total = both.
+    const operating = bills.filter(b => Number(b.counted ?? 1) === 0);
+    const opAmount = operating.reduce((t, b) => t + n0(b.totalamt), 0);
+    const opPatients = new Set(operating.map(b => b.patient_id)).size;
+
     return {
       amount,
       discount,
       due,
       patients,
-      invoices: bills.length,
+      invoices: counted.length,
+      excluded: operating.length,
       avg: patients > 0 ? Math.round(amount / patients) : 0,
+      origin: { amount, invoices: counted.length, patients },
+      inter: {
+        amount: opAmount,
+        invoices: operating.length,
+        patients: opPatients,
+      },
+      total: {
+        amount: amount + opAmount,
+        invoices: bills.length,
+        patients: new Set(bills.map(b => b.patient_id)).size,
+      },
+    };
+  }, [bills, counted]);
+
+  // Every interbranch invoice on this branch, both kinds:
+  //   operating — operated here, source elsewhere: NOT in the totals above
+  //   source    — our patient, operated elsewhere: IS in the totals above
+  const ib = useMemo(() => {
+    const all = bills.filter(
+      b =>
+        b.interbranch_role === 'operating' || b.interbranch_role === 'source',
+    );
+    let amount = 0;
+    let excluded = 0;
+    for (const b of all) {
+      amount += n0(b.totalamt);
+      if (b.interbranch_role === 'operating') excluded++;
+    }
+    return {
+      all,
+      amount,
+      invoices: all.length,
+      excluded,
+      counted: all.length - excluded,
+      patients: new Set(all.map(b => b.patient_id)).size,
     };
   }, [bills]);
 
   const rows = useMemo(() => {
     const patientsBy = {};
-    for (const b of bills) {
+    for (const b of counted) {
       const s = b.status || 'Unspecified';
       (patientsBy[s] = patientsBy[s] || new Set()).add(b.patient_id);
     }
@@ -165,20 +229,21 @@ const IPDInvoiceScreen = ({ navigation, route }) => {
     return out
       .filter(r => r.amount > 0 || r.patients > 0)
       .sort((a, b) => b.amount - a.amount);
-  }, [bills, totals]);
+  }, [counted, totals]);
 
   const max = Math.max(...rows.map(r => r.amount), 1);
 
   const list = useMemo(() => {
+    const base = listFilter === 'IB' ? ib.all : bills;
     const q = query.trim().toLowerCase();
-    if (!q) return bills;
-    return bills.filter(
+    if (!q) return base;
+    return base.filter(
       b =>
         String(b.name || '')
           .toLowerCase()
           .includes(q) || String(b.phone || '').includes(q),
     );
-  }, [bills, query]);
+  }, [bills, ib, listFilter, query]);
 
   const header = (
     <View>
@@ -193,19 +258,35 @@ const IPDInvoiceScreen = ({ navigation, route }) => {
       <View style={st.body}>
         {/* Only the FIRST row overlaps the header. Putting the -30 on the
             shared style pulled the second row up underneath it. */}
+        {/* Total = Origin + Interbranch. Invoice / patient counts ride in
+            each card's note so three currency cards fit on one row. */}
         <View style={[st.statRow, st.statRowFirst]}>
           <Stat
-            label="Billed"
-            value={inr(summary.amount)}
-            note={`${num(summary.invoices)} invoices`}
+            label="Total billed"
+            value={inr(summary.total.amount)}
+            note={`${num(summary.total.invoices)} inv · ${num(
+              summary.total.patients,
+            )} pt`}
             color={T.text}
-            wide
+            small
           />
           <Stat
-            label="Patients"
-            value={num(summary.patients)}
-            note="unique"
+            label="Origin branch"
+            value={inr(summary.origin.amount)}
+            note={`${num(summary.origin.invoices)} inv · ${num(
+              summary.origin.patients,
+            )} pt`}
             color={HUE_I}
+            small
+          />
+          <Stat
+            label="Interbranch"
+            value={inr(summary.inter.amount)}
+            note={`${num(summary.inter.invoices)} inv · ${num(
+              summary.inter.patients,
+            )} pt`}
+            color={IB}
+            small
           />
         </View>
 
@@ -213,7 +294,7 @@ const IPDInvoiceScreen = ({ navigation, route }) => {
           <Stat
             label="Avg bill"
             value={inr(summary.avg)}
-            note="per patient"
+            note="origin, per pt"
             color={T.text}
             small
           />
@@ -293,7 +374,42 @@ const IPDInvoiceScreen = ({ navigation, route }) => {
           )}
         </View>
 
-        <Text style={st.blockLabel}>ALL INVOICES</Text>
+        <Text style={st.blockLabel}>
+          {listFilter === 'IB' ? 'INTERBRANCH INVOICES' : 'ALL INVOICES'}
+        </Text>
+
+        <View style={st.filterRow}>
+          {[
+            { key: '', label: 'All', count: bills.length },
+            { key: 'IB', label: 'Interbranch', count: ib.invoices },
+          ].map(f => {
+            const on = listFilter === f.key;
+            const tint = f.key === 'IB' ? IB : HUE_I;
+            return (
+              <TouchableOpacity
+                key={f.key || 'all'}
+                onPress={() => setListFilter(f.key)}
+                style={[
+                  st.filterChip,
+                  on && { backgroundColor: tint, borderColor: tint },
+                ]}
+                accessibilityRole="button"
+                accessibilityState={{ selected: on }}
+                accessibilityLabel={`${f.label}, ${f.count} invoices`}
+              >
+                {f.key === 'IB' && (
+                  <Icon name="swap-horiz" size={14} color={on ? '#fff' : IB} />
+                )}
+                <Text style={[st.filterText, on && st.filterOnText]}>
+                  {f.label}
+                </Text>
+                <Text style={[st.filterCount, on && st.filterOnText]}>
+                  {num(f.count)}
+                </Text>
+              </TouchableOpacity>
+            );
+          })}
+        </View>
 
         <View style={st.searchRow}>
           <Icon name="search" size={18} color={T.muted2} />
@@ -314,9 +430,11 @@ const IPDInvoiceScreen = ({ navigation, route }) => {
           )}
         </View>
 
-        {list.length !== bills.length && (
+        {!!query && (
           <Text style={st.showing}>
-            Showing {num(list.length)} of {num(bills.length)} invoices
+            Showing {num(list.length)} of{' '}
+            {num(listFilter === 'IB' ? ib.invoices : bills.length)}{' '}
+            {listFilter === 'IB' ? 'interbranch invoices' : 'invoices'}
           </Text>
         )}
       </View>
@@ -347,7 +465,10 @@ const IPDInvoiceScreen = ({ navigation, route }) => {
             </View>
           ) : (
             <Text style={st.empty}>
-              {error || 'No invoices match this search.'}
+              {error ||
+                (listFilter === 'IB' && !query
+                  ? 'No interbranch invoices in this period.'
+                  : 'No invoices match this search.')}
             </Text>
           )
         }
@@ -359,6 +480,7 @@ const IPDInvoiceScreen = ({ navigation, route }) => {
             // The list mixes statuses, so each row says which one it is —
             // spine colour alone is not enough to tell them apart.
             showType
+            branch={location}
           />
         )}
       />
@@ -366,20 +488,39 @@ const IPDInvoiceScreen = ({ navigation, route }) => {
   );
 };
 
-const Stat = ({ label, value, note, color, wide, small }) => (
-  <View style={[st.stat, wide && { flex: 1.5 }]}>
-    <Text style={st.statLabel}>{label.toUpperCase()}</Text>
-    {/* Three currency cards in one row leave ~105px each, so the second row
-        drops a couple of points to keep ₹12,45,600 on one line. */}
-    <Text
-      style={[st.statVal, small && { fontSize: 16 }, { color }]}
-      numberOfLines={1}
+const Stat = ({ label, value, note, color, wide, small, onPress, active }) => {
+  const Box = onPress ? TouchableOpacity : View;
+  return (
+    <Box
+      style={[
+        st.stat,
+        wide && { flex: 1.5 },
+        active && { borderColor: color, backgroundColor: `${color}0F` },
+      ]}
+      {...(onPress
+        ? {
+            onPress,
+            activeOpacity: 0.7,
+            accessibilityRole: 'button',
+            accessibilityState: { selected: !!active },
+          }
+        : {})}
     >
-      {value}
-    </Text>
-    <Text style={st.statNote}>{note}</Text>
-  </View>
-);
+      <Text style={st.statLabel}>{label.toUpperCase()}</Text>
+      {/* Three currency cards in one row leave ~105px each, so the second row
+          drops a couple of points to keep ₹12,45,600 on one line. */}
+      <Text
+        style={[st.statVal, small && { fontSize: 16 }, { color }]}
+        numberOfLines={1}
+      >
+        {value}
+      </Text>
+      <Text style={st.statNote} numberOfLines={1}>
+        {note}
+      </Text>
+    </Box>
+  );
+};
 
 export default IPDInvoiceScreen;
 
@@ -504,4 +645,20 @@ const st = StyleSheet.create({
     fontFamily: F.regular,
   },
   showing: { fontSize: 10, color: T.muted2, marginTop: 10, fontFamily: F.mono },
+
+  filterRow: { flexDirection: 'row', gap: 8, marginBottom: 10 },
+  filterChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingVertical: 7,
+    paddingHorizontal: 12,
+    borderRadius: 18,
+    borderWidth: 1,
+    borderColor: T.line,
+    backgroundColor: T.card,
+  },
+  filterText: { fontSize: 12, color: T.text, fontFamily: F.medium },
+  filterCount: { fontFamily: F.mono, fontSize: 11, color: T.muted2 },
+  filterOnText: { color: '#fff' },
 });

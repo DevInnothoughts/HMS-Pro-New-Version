@@ -86,7 +86,7 @@ const IPDInvoiceStatusScreen = ({ navigation, route }) => {
       if (!quiet) setLoading(true);
       setError('');
       try {
-        const res = await get('/IPDCollection/billsV4', {
+        const res = await get('/IPDCollection/billsV5', {
           location,
           from,
           to,
@@ -121,7 +121,10 @@ const IPDInvoiceStatusScreen = ({ navigation, route }) => {
       tds: 0,
     };
     const gender = { male: 0, female: 0 };
-    for (const b of bills) {
+    // Operating-branch copies of interbranch invoices (counted === 0) are
+    // listed but not totalled — the revenue belongs to the source branch.
+    const counted = bills.filter(b => Number(b.counted ?? 1) !== 0);
+    for (const b of counted) {
       t.amount += n0(b.totalamt);
       t.discount += n0(b.discount);
       t.payable += n0(b.payable_amt);
@@ -135,7 +138,17 @@ const IPDInvoiceStatusScreen = ({ navigation, route }) => {
     return {
       ...t,
       gender,
-      patients: new Set(bills.map(b => b.patient_id)).size,
+      patients: new Set(counted.map(b => b.patient_id)).size,
+      invoices: counted.length,
+      excluded: bills.length - counted.length,
+      // All interbranch rows, both kinds — for the Interbranch chip.
+      interbranch: bills
+        .filter(
+          b =>
+            b.interbranch_role === 'operating' ||
+            b.interbranch_role === 'source',
+        )
+        .reduce((sum, b) => sum + n0(b.totalamt), 0),
     };
   }, [bills]);
 
@@ -147,6 +160,11 @@ const IPDInvoiceStatusScreen = ({ navigation, route }) => {
     else if (sub === 'Due') out = out.filter(i => i.totaldue != '0');
     else if (sub === 'Settled') out = out.filter(i => n0(i.receivedamt) !== 0);
     else if (sub === 'TDS') out = out.filter(i => n0(i.actualTDS) !== 0);
+    else if (sub === 'Interbranch')
+      out = out.filter(
+        i =>
+          i.interbranch_role === 'operating' || i.interbranch_role === 'source',
+      );
 
     const q = query.trim().toLowerCase();
     if (!q) return out;
@@ -169,6 +187,9 @@ const IPDInvoiceStatusScreen = ({ navigation, route }) => {
           { key: 'TDS', label: 'TDS', v: totals.tds },
         ]
       : []),
+    // Interbranch rows, both kinds. Its value is informational — operating
+    // copies in it are not part of the All figure.
+    { key: 'Interbranch', label: 'Interbranch', v: totals.interbranch },
   ];
 
   const header = (
@@ -186,7 +207,13 @@ const IPDInvoiceStatusScreen = ({ navigation, route }) => {
           <Stat
             label="Billed"
             value={inr(totals.amount)}
-            note={`${num(bills.length)} invoices`}
+            note={
+              totals.excluded > 0
+                ? `${num(totals.invoices)} invoices · ${num(
+                    totals.excluded,
+                  )} interbranch excl.`
+                : `${num(totals.invoices)} invoices`
+            }
             color={T.text}
             wide
           />
@@ -285,7 +312,12 @@ const IPDInvoiceStatusScreen = ({ navigation, route }) => {
           )
         }
         renderItem={({ item }) => (
-          <IPDInvoiceRow b={item} hue={hue} cashless={isCashless} />
+          <IPDInvoiceRow
+            b={item}
+            hue={hue}
+            cashless={isCashless}
+            branch={location}
+          />
         )}
       />
     </SafeAreaView>

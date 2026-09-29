@@ -42,7 +42,7 @@ import {
   selectCollection,
   selectToday,
   selectTileStat,
-  selectLeadsFunnel,
+  selectLeadSources,
 } from '../api/overview';
 import { visibleSections } from '../config/sections.config';
 import {
@@ -59,7 +59,7 @@ import { Card } from '../design/components/primitives';
 import { F, HUE, T, dec1, num } from '../design/tokens';
 import { HomeHeader } from '../design/components/HomeHeader';
 import TabBar from '../design/components/TabBar';
-import { LeadsFunnel } from '../design/components/blocks';
+import { LeadSourceStrip } from '../design/components/blocks';
 
 const HomeScreen = ({ navigation }) => {
   const role = useSelector(s => s.location.role);
@@ -137,7 +137,7 @@ const HomeScreen = ({ navigation }) => {
   const openSection = id =>
     navigation.navigate('Section', { id, from: scope.from, to: scope.to });
 
-  const leads = selectLeadsFunnel(data.leads);
+  const leads = selectLeadSources(data.leads);
 
   return (
     <SafeAreaView style={st.screen} edges={['top']}>
@@ -244,10 +244,9 @@ const HomeScreen = ({ navigation }) => {
                 action="All leads"
                 onAction={() => navigation.navigate('Section', { id: 'leads' })}
               />
-              <LeadsFunnel
+              <LeadSourceStrip
                 rows={leads.rows}
-                foot={leads.foot}
-                note={leads.note}
+                total={leads.total}
                 hue={HUE.leads}
                 onPressRow={r =>
                   navigation.navigate(r.route, {
