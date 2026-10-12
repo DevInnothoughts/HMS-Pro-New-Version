@@ -766,6 +766,8 @@ const TicketFooter = ({ ticket }) => {
 const ACTION_WORD = {
   approve: 'approve',
   reconsider: 'send back',
+  resubmit: 'resubmit',
+  withdraw: 'close',
   sendToBranch: 'send to branch',
   fixedLocally: 'mark fixed',
   resolveLocal: 'resolve',

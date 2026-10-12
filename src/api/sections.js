@@ -248,18 +248,21 @@ export const SECTION_SHAPERS = {
   // response, and scoreCounts comes straight off its summary.
   performance: data => ({
     metrics: performanceMetrics(data),
+    // Patient feedback block — hidden. SectionScreen has no renderer for
+    // kind 'nps', so it fell through to the visit-type grid and drew an empty
+    // block under the heading. NPS now shows as a metric card after Avg PSI.
     blocks: [
-      {
-        key: 'nps',
-        kind: 'nps',
-        label: 'Patient feedback',
-        data: data?.summary?.scoreCounts
-          ? {
-              counts: data.summary.scoreCounts,
-              population: data.summary.operated,
-            }
-          : null,
-      },
+      // {
+      //   key: 'nps',
+      //   kind: 'nps',
+      //   label: 'Patient feedback',
+      //   data: data?.summary?.scoreCounts
+      //     ? {
+      //         counts: data.summary.scoreCounts,
+      //         population: data.summary.operated,
+      //       }
+      //     : null,
+      // },
     ],
   }),
 };
@@ -947,7 +950,30 @@ export function performanceMetrics(data) {
       value: s.psiAvg == null ? '—' : `${s.psiAvg}%`,
       note: 'satisfaction',
     },
+    {
+      // summary.nps is % promoters − % detractors (−100…+100), computed by
+      // ipdFeedbackModel.computeNps — the same figure the Patient Feedback
+      // page shows. Null when nobody in the range has responded.
+      key: 'nps',
+      label: 'NPS',
+      value: fmtNps(s.nps),
+      note:
+        s.nps == null
+          ? 'no responses'
+          : `${num(s.responses)} response${s.responses === 1 ? '' : 's'}`,
+    },
   ];
 }
+
+/**
+ * NPS as a signed whole number: +42, −10, 0. '—' when there is no score.
+ * The sign matters — NPS runs −100…+100, and a bare "10" reads as a rating.
+ */
+export const fmtNps = v => {
+  if (v == null || v === '') return '—';
+  const n = Math.round(Number(v));
+  if (!Number.isFinite(n)) return '—';
+  return n > 0 ? `+${n}` : n < 0 ? `−${Math.abs(n)}` : '0';
+};
 
 export default { fetchSection, SECTION_SHAPERS };

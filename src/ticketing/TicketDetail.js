@@ -9,7 +9,7 @@
 //
 //   Cluster Head    Approve · Reconsider
 //   Dept Head       Update progress · Re-assign · Forward · Resolve · Close
-//   Partner/raiser  Reopen
+//   Partner/raiser  Reopen · Resubmit / Close (when sent back)
 //
 // None of that is decided here. The server sends `ticket.actions` and this
 // screen renders a button per entry, labelled from ACTION_UI. A role that gains
@@ -74,6 +74,22 @@ const ACTION_UI = {
     needs: 'remark',
     title: 'Send back for reconsideration',
     body: 'Say what needs rethinking — the branch reads this.',
+  },
+  // The branch's answer to a send-back. Before these existed, a Sent Back
+  // ticket offered the raiser no button at all.
+  resubmit: {
+    label: 'Resubmit to Cluster Head',
+    tone: 'primary',
+    needs: 'remark',
+    title: 'Resubmit this ticket',
+    body: 'Answer what your Cluster Head asked — they read this before approving it.',
+  },
+  withdraw: {
+    label: 'Close ticket',
+    tone: 'secondary',
+    needs: null,
+    title: 'Close this ticket?',
+    body: 'Do this if the request is no longer needed. It will not go to any department.',
   },
   // Local fix (Operations). Shown only when the server offers it, and it only
   // offers it for a flagged department — so no department check is needed here.
@@ -141,6 +157,15 @@ const ACTION_UI = {
     needs: null,
     title: 'Close this ticket?',
     body: 'This finishes it.',
+  },
+  // SuperAdmin only — the server offers it at any stage except where the
+  // ordinary close already applies.
+  adminClose: {
+    label: 'Close ticket (admin)',
+    tone: 'danger',
+    needs: 'remark',
+    title: 'Close this ticket now?',
+    body: 'This skips the rest of the workflow. Say why — the branch and department will see it.',
   },
   reopen: {
     label: 'Reopen',
@@ -210,6 +235,10 @@ const MY_TURN = {
   // Same wording as approve on purpose: a Cluster Head looking at an Open
   // ticket is at the approval stage whichever way they send it.
   sendToBranch: 'At your stage for approval',
+  resubmit:
+    'Sent back to you — answer your Cluster Head and resubmit, or close it.',
+  withdraw:
+    'Sent back to you — answer your Cluster Head and resubmit, or close it.',
   fixedLocally: 'With your branch — fix it and mark it done here',
   resolveLocal: 'Fixed at the branch — resolve it if you are satisfied',
   closeLocal: 'With you — close it once you are satisfied',
@@ -242,6 +271,8 @@ const ACTIVITY_VERB = {
   RAISED: 'raised this',
   APPROVED: 'approved it',
   SENT_BACK: 'sent it back to be reconsidered',
+  RESUBMITTED: 'resubmitted it to the Cluster Head',
+  WITHDRAWN: 'closed it after it was sent back',
   REASSIGNED: 're-assigned it — wrong department',
   FORWARDED: 'forwarded it',
   PROGRESS: 'updated progress',

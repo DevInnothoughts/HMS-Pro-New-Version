@@ -22,6 +22,8 @@
 //   report the team has been reading was built from. Fixing it here alone would
 //   make the new home disagree with the old one and with every past export. If
 //   it should be 7, change BOTH places, deliberately, as its own task.
+// • 'CustomMonth' is new-shell only (AdminHome has no equivalent): a picked
+//   calendar month, 1st → last day, capped at today. See monthRange().
 // • Branch is NOT stored here. It lives in locationSlice as `value`; the branch
 //   chip writes there. One home for one fact.
 //
@@ -57,8 +59,46 @@ export const SCOPE_OPTIONS = [
   { value: '30', label: 'Last 30 Days' },
   { value: 'month', label: 'This Month' },
   { value: 'FY', label: 'This F.Y.' },
+  { value: 'CustomMonth', label: 'Custom Month' },
   { value: 'Custom', label: 'Custom Date' },
 ];
+
+const MONTHS_SHORT = [
+  'Jan',
+  'Feb',
+  'Mar',
+  'Apr',
+  'May',
+  'Jun',
+  'Jul',
+  'Aug',
+  'Sep',
+  'Oct',
+  'Nov',
+  'Dec',
+];
+
+/**
+ * A calendar month → { from, to }. `month` is 0-based.
+ *
+ * `to` is the last day of the month, EXCEPT for the current month, where it is
+ * today — the same rule as 'This Month' and the same "no future dates" rule as
+ * Custom Date. Actuals only exist up to today; HomeHeader's targetWindow()
+ * extends the current month to month-end for the target chase, exactly as it
+ * does for 'month'. A future month returns null.
+ */
+export function monthRange(year, month) {
+  const y = Number(year);
+  const m = Number(month);
+  if (!Number.isInteger(y) || !Number.isInteger(m) || m < 0 || m > 11) {
+    return null;
+  }
+  const from = fmt(new Date(Date.UTC(y, m, 1)));
+  const end = fmt(new Date(Date.UTC(y, m + 1, 0)));
+  const today = todayIST();
+  if (from > today) return null;
+  return { from, to: end > today ? today : end };
+}
 
 /** Resolve a preset to { from, to }. Returns null for Custom — the caller picks. */
 export function rangeFor(preset) {
@@ -126,6 +166,14 @@ const scopeSlice = createSlice({
         state.to = r.to;
       }
     },
+    setCustomMonth(state, action) {
+      const { year, month } = action.payload || {};
+      const r = monthRange(year, month);
+      if (!r) return;
+      state.preset = 'CustomMonth';
+      state.from = r.from;
+      state.to = r.to;
+    },
     setCustomRange(state, action) {
       const { from, to } = action.payload || {};
       if (!from || !to) return;
@@ -139,11 +187,16 @@ const scopeSlice = createSlice({
   },
 });
 
-export const { setPreset, setCustomRange } = scopeSlice.actions;
+export const { setPreset, setCustomMonth, setCustomRange } = scopeSlice.actions;
 
 /** The label on the header chip. */
 export const scopeLabel = scope => {
   if (!scope) return 'Today';
+  if (scope.preset === 'CustomMonth' && scope.from) {
+    // 'Sep 2026' — the month is the whole point, the dates are implied.
+    const [y, m] = scope.from.split('-').map(Number);
+    return `${MONTHS_SHORT[m - 1] || ''} ${y}`;
+  }
   if (scope.preset !== 'Custom') {
     return SCOPE_OPTIONS.find(o => o.value === scope.preset)?.label || 'Today';
   }

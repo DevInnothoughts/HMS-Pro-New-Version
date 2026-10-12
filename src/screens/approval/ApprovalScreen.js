@@ -220,6 +220,7 @@ const ApprovalScreen = ({ navigation }) => {
           sub={`${location} · ${fmtDate(date)}`}
           hue={T.brand}
           hideScope
+          hideBranch
           onBack={() => navigation.goBack()}
         />
 

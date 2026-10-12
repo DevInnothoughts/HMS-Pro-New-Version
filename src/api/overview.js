@@ -16,6 +16,7 @@
 
 import { get } from './client';
 import { dec1, inr, num } from '../design/tokens';
+import { fmtNps } from './sections';
 
 /** GET /hms/Dashboard — unchanged, the same call AdminHome has always made. */
 export const fetchDashboard = (location, from, to) =>
@@ -242,6 +243,11 @@ export function selectSectionMetrics(sectionId, { dashboard, collection }) {
     case 'performance':
       return clean({
         npsAvg: fmt.dec1(n(dashboard?.nps_avg) ?? 0),
+        // The real NPS (−100…+100) for the selected range — /Dashboard `nps`,
+        // from ipdFeedbackModel.getIpdNpsSummary, so it matches the Patient
+        // Feedback screen. `nps_avg` above is a 1–5 star average over the FY,
+        // not an NPS. Null (no responses) drops the stat rather than showing 0.
+        nps: dashboard?.nps == null ? null : fmtNps(dashboard.nps),
         patientsServed: fmt.num(n(dashboard?.totalPatients)),
       });
 
@@ -292,7 +298,7 @@ export function selectTileStat(sectionId, data) {
     case 'leads':
       return m.callsHandled ? `${m.callsHandled} calls handled` : null;
     case 'performance':
-      return m.npsAvg != null ? `NPS ${m.npsAvg}` : null;
+      return m.nps != null ? `NPS ${m.nps}` : null;
     case 'reports':
       return m.totalCollection ? `${m.totalCollection} collected` : null;
     default:

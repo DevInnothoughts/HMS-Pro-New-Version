@@ -153,6 +153,7 @@ const UserListScreen = ({ navigation }) => {
         sub="Logins, roles and access"
         hue={T.brand}
         hideScope
+        hideBranch
         onBack={() => navigation.goBack()}
       />
 

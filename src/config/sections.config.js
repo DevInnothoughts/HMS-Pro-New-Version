@@ -314,6 +314,11 @@ export const SECTIONS = [
     gate: ALL,
     statKey: 'reports',
     endpoint: true,
+    // The four cards (Revenue, Patients, Avg per patient, Avg per new patient)
+    // are switched off on request — the section is a list of reports. Remove
+    // this line to bring them back; reportsMetrics() is untouched. While it is
+    // set, SectionScreen does not call the section endpoint at all.
+    hideMetrics: true,
     metrics: [
       M(
         'opdIpdCollection',

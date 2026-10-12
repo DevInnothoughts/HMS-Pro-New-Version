@@ -296,6 +296,7 @@ const UserFormScreen = ({ navigation, route }) => {
           sub="Loading"
           hue={T.brand}
           hideScope
+          hideBranch
           onBack={() => navigation.goBack()}
         />
         <View style={st.centre}>
@@ -318,6 +319,7 @@ const UserFormScreen = ({ navigation, route }) => {
             sub={isEdit ? mobile : 'Create a login'}
             hue={T.brand}
             hideScope
+            hideBranch
             onBack={() => navigation.goBack()}
           />
 

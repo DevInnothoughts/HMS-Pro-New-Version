@@ -236,6 +236,8 @@ export async function raiseTicket(actor, payload) {
 const ACTION_PATH = {
   approve: 'approve',
   reconsider: 'reconsider',
+  resubmit: 'resubmit',
+  withdraw: 'withdraw',
   sendToBranch: 'send-to-branch',
   fixedLocally: 'fixed-locally',
   resolveLocal: 'resolve-local',
@@ -246,6 +248,7 @@ const ACTION_PATH = {
   resolve: 'resolve',
   close: 'close',
   reopen: 'reopen',
+  adminClose: 'admin-close',
   comment: 'comment',
   assign: 'assign',
   fix: 'fix',

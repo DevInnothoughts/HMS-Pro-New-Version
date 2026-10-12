@@ -2,7 +2,7 @@
 /* eslint-disable prettier/prettier */
 // src/design/components/HomeHeader.js
 // ─────────────────────────────────────────────────────────────────────────────
-// The dark header: menu · org + branch · live pill + scope chip ·
+// The dark header: menu · org + branch · date-range chip ·
 // THREE TARGET CARDS · compact approval pills (SuperAdmin only).
 //
 // ⚠️ THE SELECTED WINDOW, WITH RUN RATES
@@ -28,9 +28,17 @@
 // ──────────────────────────────────────────────────────
 // `lastYear` from the API covers the full window (the server shifts the same
 // dates back a year), so comparing it against a part-elapsed window would
-// flatter last year. It is shown as its own daily rate (lastYear ÷ days in the
-// window) beside CRR — rate against rate, the only honest mid-period
-// comparison.
+// flatter last year. It is shown as its own daily rate beside CRR — rate
+// against rate, the only honest mid-period comparison.
+//
+// ⚠️ …BUT ROUNDED OUT TO WHOLE MONTHS
+// ───────────────────────────────────
+// Last year comes from branch_monthly_actual (one row per month), and
+// getMonthlyActuals() sums every month the shifted window touches, IN FULL.
+// "Today" therefore returns all of last October, "Last 7 days" all of
+// September + October. Dividing that by the days SELECTED overstated the rate
+// up to ~31×. The divisor is lyDays() — the days in the months actually
+// summed — so the line reads as last year's average day over those months.
 //
 // ⚠️ NO RED
 // ─────────
@@ -94,6 +102,30 @@ const daysBetween = (a, b) =>
   ) + 1;
 
 /**
+ * Days of data behind `lastYear` for a window — see "ROUNDED OUT TO WHOLE
+ * MONTHS" in the header. Mirrors the backend: shift both ends back a year, then
+ * take every month from the start's month to the end's month, whole. So the
+ * span is the 1st of the first month → the last day of the last month, last
+ * year (leap years handled by Date.UTC).
+ *
+ *   2026-10-05 → 2026-10-05   →  2025-10-01 → 2025-10-31   31 days
+ *   2026-09-28 → 2026-10-05   →  2025-09-01 → 2025-10-31   61 days
+ *   2026-04-01 → 2027-03-31   →  2025-04-01 → 2026-03-31  365 days
+ */
+const lyDays = (from, to) => {
+  if (!from || !to) return 0;
+  const fy = Number(from.slice(0, 4)) - 1;
+  const fm = Number(from.slice(5, 7)) - 1;
+  const ty = Number(to.slice(0, 4)) - 1;
+  const tm = Number(to.slice(5, 7)) - 1;
+  if (![fy, fm, ty, tm].every(Number.isFinite)) return 0;
+  const start = Date.UTC(fy, fm, 1);
+  const end = Date.UTC(ty, tm + 1, 0); // day 0 of next month = last of this
+  const n = Math.round((end - start) / 86400000) + 1;
+  return n > 0 ? n : 0;
+};
+
+/**
  * The window the TARGET covers, derived from the scope preset.
  *
  * scopeSlice.rangeFor() ends EVERY preset at today, including 'month' and 'FY',
@@ -103,6 +135,7 @@ const daysBetween = (a, b) =>
  * every preset closed and removes RRR from the screen entirely.
  *
  *   month / FY        → extended to month-end / 31 March   (live chase)
+ *   CustomMonth       → that month's 1st → last day        (live if current)
  *   Today / Yesterday → that day                           (closed, correctly)
  *   7 / 30            → the rolling window                 (closed, correctly)
  *   Custom            → exactly as given
@@ -115,7 +148,10 @@ const targetWindow = scope => {
   const { preset, from, to } = scope || {};
   if (!from || !to) return { from, to };
 
-  if (preset === 'month') {
+  // A picked month behaves like 'This Month': the current month is capped at
+  // today by monthRange(), so extend it to month-end for a live chase. A past
+  // month already ends on its last day and stays closed.
+  if (preset === 'month' || preset === 'CustomMonth') {
     const d = new Date(`${from}T00:00:00Z`);
     if (isNaN(d.getTime())) return { from, to };
     const end = new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth() + 1, 0));
@@ -268,6 +304,8 @@ export const HomeHeader = ({
   const { from, to } = tw;
 
   const win = useMemo(() => rangeProgress(from, to), [from, to]);
+  // Divisor for last year's daily rate — whole months, not the days selected.
+  const lyDayCount = useMemo(() => lyDays(from, to), [from, to]);
 
   const canSwitchBranch =
     Array.isArray(locationArray) && locationArray.length > 1;
@@ -363,13 +401,23 @@ export const HomeHeader = ({
             ? actual - (targetN / win.total) * win.elapsed
             : null,
         // Last year as ITS OWN daily rate, so it compares with CRR rather than
-        // with a part-elapsed window.
+        // with a part-elapsed window. Divided by the days in the whole months
+        // the backend summed (lyDays), NOT win.total — see the file header.
         lyRate:
-          lastYearN != null && win.total > 0 ? lastYearN / win.total : null,
+          lastYearN != null && lyDayCount > 0 ? lastYearN / lyDayCount : null,
         pct: targetN > 0 && actual != null ? (actual / targetN) * 100 : null,
+        // Interbranch cases operated here for another branch. The backend
+        // leaves them OUT of `thisYear` (they count at the source branch) and
+        // attaches the count to the sx/ipdRevenue/total rows only when > 0.
+        // Shown on the Surgeries card so the gap between this count and the
+        // IPD Invoice page is explained.
+        ibExcluded:
+          key === 'sx' && Number(r.interbranch?.invoices) > 0
+            ? Number(r.interbranch.invoices)
+            : null,
       };
     },
-    [rows, optimistic, win],
+    [rows, optimistic, win, lyDayCount],
   );
 
   const total = card('total', true);
@@ -388,19 +436,48 @@ export const HomeHeader = ({
       ? fmtCompact(total.actual / newPat.actual)
       : '-';
 
-  // NOTE: BranchTargetDetailScreen rebuilds its own range from mode/period —
-  // it does not read fromDate/toDate and does not use useScopeRange. So this
-  // opens on the calendar month regardless of the chip. Giving that screen the
-  // same explicit-range argument is a separate change; passing dates it ignores
-  // would only look like a handover that isn't happening.
-  const openTargets = () =>
+  // Card taps. Revenue opens THIS branch's target screen; New Patients and
+  // Surgeries open the lists behind those counts. The lists get the SCOPE
+  // range (scope.from/to, ends today), not the target window — `to` here runs
+  // to month-end / 31 March and would ask for days with no data yet.
+  //
+  // BranchTargetDetail takes a mode + period index within the CURRENT FY, not
+  // a date range, so the chip is mapped onto it: This F.Y. → Yearly; anything
+  // else → the month the range ends in (Monthly), or the current month if that
+  // falls outside this FY (e.g. a custom range from last year).
+  const openBranchTarget = () => {
+    const isFY = scope?.preset === 'FY';
+    const toMonthIndex = () => {
+      const [y, m] = String(scope?.to || '')
+        .split('-')
+        .map(Number);
+      if (!y || !m) return period;
+      const now = new Date();
+      const curFY =
+        now.getMonth() + 1 >= 4 ? now.getFullYear() : now.getFullYear() - 1;
+      const fy = m >= 4 ? y : y - 1;
+      return fy === curFY ? (m + 8) % 12 : period; // Apr → 0 … Mar → 11
+    };
     navigation?.navigate?.('BranchTargetDetail', {
       branchId: location,
       branchName: location,
-      mode: 'monthly',
-      period,
+      mode: isFY ? 'yearly' : 'monthly',
+      period: isFY ? 0 : toMonthIndex(),
       locations: [location],
     });
+  };
+
+  const listParams = () => ({
+    location,
+    fromDate: scope.from,
+    toDate: scope.to,
+  });
+
+  const openAppointments = () =>
+    navigation?.navigate?.('AppointmentDetails', listParams());
+
+  const openIPDInvoices = () =>
+    navigation?.navigate?.('IPDBillDetails', listParams());
 
   return (
     <View style={s.hdr}>
@@ -432,23 +509,12 @@ export const HomeHeader = ({
           </TouchableOpacity>
         </View>
 
-        <View
-          style={[s.iconBtn, { opacity: 0.45 }]}
-          accessibilityElementsHidden
-        >
-          <Icon name="notifications-none" size={19} color="#CFDDD6" />
-        </View>
-      </View>
-
-      <View style={s.sub}>
-        <View style={s.live}>
-          <View style={s.liveDot} />
-          <Text style={s.liveText}>LIVE</Text>
-        </View>
+        {/* Date range filter — sits where the notification icon was. */}
         <TouchableOpacity
           onPress={() => setPicker('scope')}
           style={s.scopeChip}
           accessibilityRole="button"
+          accessibilityLabel={`Date range ${scopeLabel(scope)}. Change range`}
         >
           <Text style={s.scopeText}>{scopeLabel(scope)}</Text>
           <Icon name="expand-more" size={14} color="#D2E0D9" />
@@ -469,7 +535,8 @@ export const HomeHeader = ({
               : `day ${win.elapsed} of ${win.total} · ${win.left} left`}
           </Text>
         </View>
-        {/* Revenue per new patient — see revPerNew above. */}
+        {/* Revenue per new patient — see revPerNew above. Takes the slot the
+            "Full" button used to occupy. */}
         <View
           style={s.rpn}
           accessible
@@ -480,15 +547,6 @@ export const HomeHeader = ({
             {revPerNew}
           </Text>
         </View>
-        <TouchableOpacity
-          onPress={openTargets}
-          style={s.openBtn}
-          accessibilityRole="button"
-          accessibilityLabel="Open the branch target screen"
-        >
-          <Text style={s.openText}>Full</Text>
-          <Icon name="arrow-forward" size={13} color="#CFDDD6" />
-        </TouchableOpacity>
       </View>
 
       {loading ? (
@@ -506,9 +564,9 @@ export const HomeHeader = ({
         </TouchableOpacity>
       ) : (
         <View style={s.grid}>
-          <TCard label="REVENUE" c={total} onPress={openTargets} />
-          <TCard label="NEW PATIENTS" c={newPat} onPress={openTargets} />
-          <TCard label="SURGERIES" c={sx} onPress={openTargets} />
+          <TCard label="REVENUE" c={total} onPress={openBranchTarget} />
+          <TCard label="NEW PATIENTS" c={newPat} onPress={openAppointments} />
+          <TCard label="SURGERIES" c={sx} onPress={openIPDInvoices} />
         </View>
       )}
 
@@ -596,7 +654,8 @@ const TCard = ({ label, c, onPress }) => {
           : `Needs ${fmt(c.need, c.money)} at ${fmtRate(
               c.rrr,
               c.money,
-            )} a day.`)
+            )} a day.`) +
+        (c.ibExcluded != null ? ` ${c.ibExcluded} interbranch excluded.` : '')
       }
     >
       {/* 1 — label + achieved/target */}
@@ -684,6 +743,16 @@ const TCard = ({ label, c, onPress }) => {
               last year {fmtRate(c.lyRate, c.money)}/day
             </Text>
           )}
+        </View>
+      )}
+
+      {/* 5 — Surgeries only: interbranch cases not counted above. */}
+      {c.ibExcluded != null && (
+        <View style={s.ibRow}>
+          <Icon name="swap-horiz" size={12} color={T.headerMuted} />
+          <Text style={s.ibText} numberOfLines={1}>
+            +{fmtCount(c.ibExcluded)} interbranch excl.
+          </Text>
         </View>
       )}
     </TouchableOpacity>
@@ -794,15 +863,6 @@ const s = StyleSheet.create({
     letterSpacing: -0.2,
   },
 
-  sub: { flexDirection: 'row', alignItems: 'center', gap: 8 },
-  live: { flexDirection: 'row', alignItems: 'center', gap: 5 },
-  liveDot: { width: 5, height: 5, borderRadius: 3, backgroundColor: T.live },
-  liveText: {
-    fontFamily: F.mono,
-    fontSize: 10,
-    letterSpacing: 0.8,
-    color: T.live,
-  },
   scopeChip: {
     marginLeft: 'auto',
     flexDirection: 'row',
@@ -821,7 +881,7 @@ const s = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'flex-start',
     justifyContent: 'space-between',
-    marginTop: 18,
+    marginTop: 4, // was 18, below the removed LIVE row
     marginBottom: 9,
   },
   targetLabel: {
@@ -841,7 +901,7 @@ const s = StyleSheet.create({
   rpn: {
     alignItems: 'center',
     alignSelf: 'center',
-    marginHorizontal: 8,
+    marginLeft: 8,
     paddingHorizontal: 14,
     paddingVertical: 5,
     borderRadius: 12,
@@ -864,24 +924,6 @@ const s = StyleSheet.create({
     letterSpacing: -0.5,
     marginTop: 1,
   },
-  openBtn: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 5,
-    backgroundColor: T.headerTile,
-    borderWidth: 1,
-    borderColor: T.headerTileLine,
-    borderRadius: 8,
-    paddingHorizontal: 9,
-    paddingVertical: 6,
-  },
-  openText: {
-    fontFamily: F.mono,
-    fontSize: 10,
-    letterSpacing: 0.5,
-    color: '#CFDDD6',
-  },
-
   loading: { paddingVertical: 34, alignItems: 'center' },
   errorBox: {
     backgroundColor: T.headerTile,
@@ -967,6 +1009,18 @@ const s = StyleSheet.create({
     opacity: 0.6,
   },
   cardLy: {
+    fontFamily: F.mono,
+    fontSize: 11,
+    color: T.headerMuted,
+    flexShrink: 1,
+  },
+  ibRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    marginTop: 4,
+  },
+  ibText: {
     fontFamily: F.mono,
     fontSize: 11,
     color: T.headerMuted,

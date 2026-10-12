@@ -83,6 +83,7 @@ import AppointmentsScreen from './src/screens/AppointmentsScreen';
 import OPDCollectionScreen from './src/screens/OPDCollectionScreen';
 import DailyOPDReportScreen from './src/screens/DailyOPDReportScreen';
 import OPDReportDetailScreen from './src/screens/OPDReportDetailScreen';
+import OPDReportPatientDetailScreen from './src/screens/OPDReportPatientDetailScreen';
 import IPDInvoiceScreen from './src/screens/IPDInvoiceScreen';
 import IPDInvoiceStatusScreen from './src/screens/IPDInvoiceStatusScreen';
 import IPDCollectionScreen from './src/screens/IPDCollectionScreen';
@@ -464,7 +465,7 @@ function App(): React.JSX.Element {
                   headerShown: false,
                 }}
               />
-              <Stack.Screen
+              {/* <Stack.Screen
                 name="OPDReportPatientDetails"
                 component={OPDReportPatientDetails}
                 options={{
@@ -473,7 +474,7 @@ function App(): React.JSX.Element {
                   // headerTintColor: '#000',
                   // headerTitleStyle: {fontSize: 20},
                 }}
-              />
+              /> */}
               {/* <Stack.Screen
                 name="EvitalPharmacyData"
                 component={PharmacyInvoiceScreen}
@@ -661,6 +662,11 @@ function App(): React.JSX.Element {
               <Stack.Screen
                 name="OPDReportDetails"
                 component={OPDReportDetailScreen}
+                options={{ headerShown: false }}
+              />
+              <Stack.Screen
+                name="OPDReportPatientDetails"
+                component={OPDReportPatientDetailScreen}
                 options={{ headerShown: false }}
               />
               <Stack.Screen

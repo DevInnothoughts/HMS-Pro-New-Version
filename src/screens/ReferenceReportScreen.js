@@ -7,8 +7,18 @@
 //
 //   GET /Patient/referenceV2?location=&from=&to=
 //        → { referenceTypeCount: [{ reference_type, count, percentage,
-//                                   invoiceCount, invoicePercentage }],
-//            totalCount, totalInvoiceCount }
+//                                   invoiceCount, invoicePercentage,
+//                                   interbranchPatientCount }],
+//            totalCount, totalInvoiceCount, totalInterbranchPatientCount }
+//
+// ⚠️ IPD FOLLOWS THE INTERBRANCH RULE
+// ───────────────────────────────────
+// Same rule as the IPD Invoice page and the Home surgery card
+// (backend utils/interbranch.js): a patient operated HERE for another branch
+// has an operating-branch copy of the invoice, which belongs to the source
+// branch and is left out of IPD. Those patients are shown separately —
+// per source under the source name, and in total on the IPD card and footer —
+// so the gap against this branch's surgery count is explained, not hidden.
 //
 // ⚠️ "IPD" IS invoiceCount, RELABELLED — THE FIGURE IS UNCHANGED
 // ──────────────────────────────────────────────────────────────
@@ -112,7 +122,7 @@ const ReferenceReportScreen = ({ navigation, route }) => {
   const { from, to } = useScopeRange(route);
 
   const [rows, setRows] = useState([]);
-  const [totals, setTotals] = useState({ patients: 0, ipd: 0 });
+  const [totals, setTotals] = useState({ patients: 0, ipd: 0, ib: 0 });
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState('');
@@ -129,6 +139,7 @@ const ReferenceReportScreen = ({ navigation, route }) => {
         setTotals({
           patients: n0(res?.totalCount),
           ipd: n0(res?.totalInvoiceCount),
+          ib: n0(res?.totalInterbranchPatientCount),
         });
       } catch (e) {
         setError(e.message);
@@ -181,8 +192,9 @@ const ReferenceReportScreen = ({ navigation, route }) => {
         (a, r) => ({
           patients: a.patients + n0(r.count),
           ipd: a.ipd + n0(r.invoiceCount),
+          ib: a.ib + n0(r.interbranchPatientCount),
         }),
-        { patients: 0, ipd: 0 },
+        { patients: 0, ipd: 0, ib: 0 },
       ),
     [list],
   );
@@ -228,7 +240,9 @@ const ReferenceReportScreen = ({ navigation, route }) => {
             <Stat
               label="IPD"
               value={num(totals.ipd)}
-              note="cases"
+              note={
+                totals.ib > 0 ? `+${num(totals.ib)} interbranch excl.` : 'cases'
+              }
               color="#B3523B"
             />
             <Stat
@@ -299,6 +313,7 @@ const ReferenceReportScreen = ({ navigation, route }) => {
               {list.map((r, i) => {
                 const count = n0(r.count);
                 const conv = convOf(r);
+                const ib = n0(r.interbranchPatientCount);
                 const last = i === list.length - 1;
                 return (
                   <View
@@ -329,6 +344,18 @@ const ReferenceReportScreen = ({ navigation, route }) => {
                       </Text>
                     </View>
 
+                    {/* Only when there are any — a zero on every row would be
+                        noise in a column nobody needs most of the time. */}
+                    {ib > 0 && (
+                      <View style={st.ibRow}>
+                        <Icon name="swap-horiz" size={12} color={T.muted2} />
+                        <Text style={st.ibText}>
+                          {num(ib)} interbranch patient{ib === 1 ? '' : 's'} ·
+                          not in IPD
+                        </Text>
+                      </View>
+                    )}
+
                     {/* A hairline under the row for shape — beneath the
                         numbers rather than competing with them, scaled to the
                         biggest source so rows rank visually too. */}
@@ -345,6 +372,17 @@ const ReferenceReportScreen = ({ navigation, route }) => {
                   </View>
                 );
               })}
+
+              {shown.ib > 0 && (
+                <View style={st.ibFoot}>
+                  <Icon name="swap-horiz" size={13} color={T.muted} />
+                  <Text style={st.ibFootText}>
+                    {num(shown.ib)} interbranch patient
+                    {shown.ib === 1 ? '' : 's'} operated here for another
+                    branch, counted at their source branch
+                  </Text>
+                </View>
+              )}
 
               <View style={st.tFoot}>
                 <Text style={[st.footName, st.colSource]}>
@@ -378,7 +416,8 @@ const ReferenceReportScreen = ({ navigation, route }) => {
             IPD counts invoices raised, so a patient billed twice counts twice
             and conversion can exceed 100%. PTS counts registered patients only,
             while IPD does not filter on registration — the two come from
-            slightly different populations.
+            slightly different populations. Patients operated here for another
+            branch are counted at that branch, as on the IPD Invoice page.
           </Text>
           <ReferenceComparison location={location} from={from} />
         </View>
@@ -541,6 +580,30 @@ const st = StyleSheet.create({
     backgroundColor: T.lineSoft,
     marginTop: 8,
     overflow: 'hidden',
+  },
+
+  ibRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    marginTop: 4,
+  },
+  ibText: { fontFamily: F.regular, fontSize: 10.5, color: T.muted2 },
+  ibFoot: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderTopWidth: 1,
+    borderTopColor: T.lineSoft,
+  },
+  ibFootText: {
+    flex: 1,
+    fontFamily: F.regular,
+    fontSize: 10.5,
+    color: T.muted,
+    lineHeight: 14,
   },
 
   tFoot: {

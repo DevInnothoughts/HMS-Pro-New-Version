@@ -18,6 +18,21 @@
 // as meaningful when it is only a scale accident. Stacked charts sharing the
 // same x labels keep both honest.
 //
+// ⚠️ REVENUE MIX — FOUR MORE CHARTS, ONE SCALE EACH
+// ──────────────────────────────────────────────────
+// OPD / IPD / LAB / PHARMACY per new patient, one chart each, from each
+// bucket's `perNewPatient` (OPD there is net of lab, so the four add up to
+// REV / NEW PT — same figures as Branch Summary). Separate charts, not one
+// with four lines: IPD runs ~20× lab, and on a shared axis lab would be a flat
+// line on the floor. The exact figures are in the "Per new patient" table.
+// A server without the mix (older build) simply doesn't show these four; lab
+// says so when the server could not split it out.
+//
+// The "Per new patient" table (exact figures per period) sits right under the
+// top cards, ABOVE the period tabs, the chart toggle and every chart — so the
+// numbers are read first and the charts show their shape. It follows the tab
+// chosen below it.
+//
 // ⚠️ QUARTERS AND YEARS ARE FINANCIAL (APR–MAR)
 // ─────────────────────────────────────────────
 // Same convention as Target Comparison. The last point of every view is the
@@ -60,18 +75,51 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import Icon from 'react-native-vector-icons/MaterialIcons';
 
 import { get } from '../api/client';
-import { F, T, inr, inrCompact, num } from '../design/tokens';
+import { F, T, inr, inrCompact, num, tint } from '../design/tokens';
 
 const ENDPOINT = '/overview/branchTrend';
 const V1_ENDPOINT = '/overview/branchSummary';
 
 const PERIODS = [
   { key: 'monthly', label: 'Monthly', note: 'Last 12 months' },
-  { key: 'quarterly', label: 'Quarterly', note: 'Last 8 quarters · FY' },
-  { key: 'yearly', label: 'Yearly', note: 'Last 5 financial years' },
+  { key: 'quarterly', label: 'Quarterly', note: 'Last 8 FY quarters' },
+  { key: 'yearly', label: 'Yearly', note: 'Last 4 FYs' },
 ];
 
 const REV = '#B26A00'; // amber — distinct from brand green in both charts
+
+// The four parts of revenue per new patient, each with its own line colour.
+// No red — this screen keeps red for nothing; amber is REV above.
+const MIX = [
+  {
+    key: 'opd',
+    title: 'OPD per new patient',
+    sub: 'OPD of all patients (lab excluded) ÷ new patients',
+    short: 'OPD',
+    color: '#1F6FB2',
+  },
+  {
+    key: 'ipd',
+    title: 'IPD per new patient',
+    sub: 'IPD billed, all patients ÷ new patients',
+    short: 'IPD',
+    color: '#7A4FB5',
+  },
+  {
+    key: 'lab',
+    title: 'Lab per new patient',
+    sub: 'Lab of all patients ÷ new patients',
+    short: 'LAB',
+    color: '#0E8A8A',
+  },
+  {
+    key: 'pharmacy',
+    title: 'Pharmacy per new patient',
+    sub: 'Pharmacy of all patients ÷ new patients',
+    short: 'PHARM',
+    color: '#A0527A',
+  },
+];
 
 const SCREEN_W = Dimensions.get('window').width;
 const CHART_H = 210;
@@ -109,7 +157,7 @@ const MONTHS = [
   'Nov',
   'Dec',
 ];
-const WINDOW = { monthly: 12, quarterly: 8, yearly: 5 };
+const WINDOW = { monthly: 12, quarterly: 8, yearly: 4 }; // keep in step with branchTrendModel
 const pad = x => String(x).padStart(2, '0');
 const fyOf = (y, m) => (m >= 4 ? y : y - 1);
 const lastDay = (y, m) => new Date(y, m, 0).getDate();
@@ -190,12 +238,21 @@ async function readPeriodV1(location, p) {
   if (b.error) throw new Error(`${p.label}: ${b.error}`);
   const newPatients = n0(b.newPatients);
   const totalRevenue = n0(b.grandTotal);
+  const per = v => (newPatients > 0 ? Math.round(n0(v) / newPatients) : null);
+  // V1 already splits lab out of OPD (opdRevenue is net of lab), so the same
+  // four parts are available here as from /branchTrend.
   return {
     ...p,
     newPatients,
     totalRevenue,
     revenuePerNewPatient:
       newPatients > 0 ? Math.round(totalRevenue / newPatients) : null,
+    perNewPatient: {
+      opd: per(b.opdRevenue),
+      ipd: per(b.ipdRevenue),
+      lab: per(b.lab),
+      pharmacy: per(b.pharmacy),
+    },
   };
 }
 
@@ -277,6 +334,10 @@ const BranchTrendScreen = ({ navigation, route }) => {
   }, [load, data, fallback, period]);
 
   const buckets = useMemo(() => data?.[period] || [], [data, period]);
+  // An older server sends no mix at all; lab alone can be null when the
+  // server could not read the lab list. See the header.
+  const hasMix = buckets.some(b => b.perNewPatient);
+  const labKnown = buckets.some(b => b.perNewPatient?.lab != null);
   const meta = PERIODS.find(p => p.key === period) || PERIODS[0];
 
   // Whole-window figures for the stat cards: summed, and the ratio pooled —
@@ -324,7 +385,6 @@ const BranchTrendScreen = ({ navigation, route }) => {
               </Text>
             </View>
           </View>
-          <Text style={st.hdrSub}>{meta.note}</Text>
         </View>
 
         <View style={st.body}>
@@ -332,17 +392,25 @@ const BranchTrendScreen = ({ navigation, route }) => {
             <Stat
               label="New pt"
               value={loading ? '…' : num(pooled.newPatients)}
-              note={meta.note.toLowerCase()}
+              period={meta.note}
+              note="total in this window"
             />
             <Stat
               label="Rev / new pt"
               value={
                 loading ? '…' : pooled.perNew == null ? '—' : inr(pooled.perNew)
               }
+              period={meta.note}
               note="all revenue ÷ new pt"
               wide
             />
           </View>
+
+          {/* Per new patient table — top of the page, above the tabs and every
+              chart. Shown once the current tab's figures are in. */}
+          {hasMix && !(loading && !refreshing) && !error && (
+            <MixTable buckets={buckets} />
+          )}
 
           <View style={st.tabs}>
             {PERIODS.map(p => {
@@ -397,7 +465,7 @@ const BranchTrendScreen = ({ navigation, route }) => {
               <Text style={st.loadingNote}>
                 {fallback
                   ? `Reading ${meta.label.toLowerCase()} figures period by period…`
-                  : 'Reading five years of history…'}
+                  : 'Reading four years of history…'}
               </Text>
             </View>
           ) : error ? (
@@ -433,6 +501,29 @@ const BranchTrendScreen = ({ navigation, route }) => {
                 color={REV}
                 fit={fit}
               />
+              {hasMix &&
+                MIX.map(m => (
+                  <TrendCard
+                    key={`${m.key}-${period}`}
+                    title={m.title}
+                    sub={m.sub}
+                    buckets={buckets}
+                    pick={b => n0(b.perNewPatient?.[m.key])}
+                    show={b =>
+                      b.perNewPatient?.[m.key] == null
+                        ? '—'
+                        : inr(b.perNewPatient[m.key])
+                    }
+                    axis={v => inrCompact(Number(v))}
+                    color={m.color}
+                    fit={fit}
+                    emptyText={
+                      m.key === 'lab' && !labKnown
+                        ? 'Lab could not be split out right now — it is inside OPD.'
+                        : undefined
+                    }
+                  />
+                ))}
               <PeriodTable buckets={buckets} />
             </>
           )}
@@ -446,7 +537,17 @@ const BranchTrendScreen = ({ navigation, route }) => {
  * One line chart plus a callout for the tapped point. Defaults to the last
  * COMPLETE period, so the first number read is not a half-month.
  */
-const TrendCard = ({ title, sub, buckets, pick, show, axis, color, fit }) => {
+const TrendCard = ({
+  title,
+  sub,
+  buckets,
+  pick,
+  show,
+  axis,
+  color,
+  fit,
+  emptyText,
+}) => {
   const lastComplete = useMemo(() => {
     for (let i = buckets.length - 1; i >= 0; i--) {
       if (!buckets[i].partial) return i;
@@ -537,8 +638,10 @@ const TrendCard = ({ title, sub, buckets, pick, show, axis, color, fit }) => {
         </View>
       </View>
 
-      {allZero ? (
-        <Text style={st.chartEmpty}>Nothing recorded in this window.</Text>
+      {emptyText || allZero ? (
+        <Text style={st.chartEmpty}>
+          {emptyText || 'Nothing recorded in this window.'}
+        </Text>
       ) : fit ? (
         chart
       ) : (
@@ -592,11 +695,66 @@ const PeriodTable = ({ buckets }) => (
   </View>
 );
 
-const Stat = ({ label, value, note, wide }) => (
+/** Exact figures behind the four mix charts, newest first. */
+const MixTable = ({ buckets }) => (
+  <View style={st.card}>
+    <Text style={[st.cardTitle, { paddingHorizontal: 14 }]}>
+      Per new patient
+    </Text>
+    <Text style={[st.cardSub, { paddingHorizontal: 14 }]}>
+      Adds up to Rev / new pt
+    </Text>
+    <View style={[st.tr, st.th]}>
+      <Text style={[st.tdLabel, st.thText]}>PERIOD</Text>
+      {MIX.map(m => (
+        <Text key={m.key} style={[st.td, st.thText, { color: m.color }]}>
+          {m.short}
+        </Text>
+      ))}
+    </View>
+    {[...buckets].reverse().map(b => (
+      <View key={b.key} style={st.tr}>
+        <Text style={st.tdLabel} numberOfLines={1}>
+          {b.label}
+          {b.partial ? ' *' : ''}
+        </Text>
+        {MIX.map(m => {
+          const v = b.perNewPatient?.[m.key];
+          return (
+            <Text key={m.key} style={st.td} numberOfLines={1}>
+              {v == null ? '—' : inrCompact(v)}
+            </Text>
+          );
+        })}
+      </View>
+    ))}
+    {buckets.some(b => b.partial) && (
+      <Text style={st.hint}>* In progress — runs to today.</Text>
+    )}
+  </View>
+);
+
+// `period` is the window the card covers ("Last 12 months" on Monthly), shown
+// as a highlighted badge — it moved here from the header so the window sits
+// next to the figure it qualifies, and changes with the tab.
+const Stat = ({ label, value, note, period, wide }) => (
   <View style={[st.stat, wide && { flex: 1.5 }]}>
     <Text style={st.statLabel} numberOfLines={1}>
       {label.toUpperCase()}
     </Text>
+    {!!period && (
+      <View style={st.statPeriod}>
+        <Icon name="date-range" size={11} color={T.brand} />
+        <Text
+          style={st.statPeriodText}
+          numberOfLines={1}
+          adjustsFontSizeToFit
+          minimumFontScale={0.8}
+        >
+          {period}
+        </Text>
+      </View>
+    )}
     <Text style={st.statVal} numberOfLines={1}>
       {value}
     </Text>
@@ -655,12 +813,6 @@ const st = StyleSheet.create({
     color: '#fff',
     marginTop: 2,
   },
-  hdrSub: {
-    fontFamily: F.mono,
-    fontSize: 10.5,
-    color: T.headerMuted,
-    marginTop: 12,
-  },
 
   statRow: { flexDirection: 'row', gap: 9 },
   stat: {
@@ -690,6 +842,26 @@ const st = StyleSheet.create({
     color: T.muted2,
     marginTop: 5,
     fontFamily: F.regular,
+  },
+
+  // The window badge — brand-tinted so it reads as the card's qualifier.
+  statPeriod: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    alignSelf: 'flex-start',
+    gap: 4,
+    marginTop: 6,
+    paddingHorizontal: 7,
+    paddingVertical: 3,
+    borderRadius: 6,
+    backgroundColor: tint(T.brand),
+    maxWidth: '100%',
+  },
+  statPeriodText: {
+    fontFamily: F.semibold,
+    fontSize: 10,
+    color: T.brand,
+    flexShrink: 1,
   },
 
   tabs: {

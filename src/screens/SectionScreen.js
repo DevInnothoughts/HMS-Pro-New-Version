@@ -77,9 +77,16 @@ const SectionScreen = ({ navigation, route }) => {
   const [error, setError] = useState('');
 
   const hasEndpoint = !!section?.endpoint;
+  // `hideMetrics` (sections.config) — no cards, so nothing to fetch.
+  const hideMetrics = !!section?.hideMetrics;
 
   const load = useCallback(
     async (quiet = false) => {
+      if (hideMetrics) {
+        setLoading(false);
+        setRefreshing(false);
+        return;
+      }
       if (!quiet) setLoading(true);
       setError('');
       try {
@@ -103,7 +110,7 @@ const SectionScreen = ({ navigation, route }) => {
         setRefreshing(false);
       }
     },
-    [hasEndpoint, id, location, scope.from, scope.to],
+    [hasEndpoint, hideMetrics, id, location, scope.from, scope.to],
   );
 
   useEffect(() => {
@@ -179,7 +186,10 @@ const SectionScreen = ({ navigation, route }) => {
           onBack={() => navigation.goBack()}
         />
 
-        {loading && !refreshing ? (
+        {hideMetrics ? (
+          // The header's −30 overlap needs something to pull up into.
+          <View style={{ height: 30 }} />
+        ) : loading && !refreshing ? (
           <View style={st.metricSpinner}>
             <ActivityIndicator color={hue} />
           </View>

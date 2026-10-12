@@ -117,7 +117,8 @@ export const STATUS_STYLE = {
  */
 export const STATUS_HINT = {
   Open: 'Waiting for your Cluster Head to approve it',
-  'Sent Back': 'Your Cluster Head has sent this back to be reconsidered',
+  'Sent Back':
+    'Your Cluster Head has sent this back — resubmit it with your answer, or close it',
   Approved: 'With the department head',
   'In Progress': 'The department is working on it now',
   'On Hold': 'Blocked — the department has paused this one',

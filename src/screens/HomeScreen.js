@@ -124,7 +124,7 @@ const HomeScreen = ({ navigation }) => {
   );
 
   const approvals = selectApprovals(data);
-  const today = selectToday(data);
+  // const today = selectToday(data); // Today at a glance is hidden
   const collection = selectCollection(data);
   const calls = selectCalls(data);
   const k = calls[callTab];
@@ -178,7 +178,8 @@ const HomeScreen = ({ navigation }) => {
             </View>
           )}
 
-          {/* Today at a glance */}
+          {/* Today at a glance — hidden. The header's New Patients and
+              Surgeries cards now open these same screens.
           {today.length > 0 && (
             <Block>
               <SectionHead label="Today at a glance" />
@@ -194,6 +195,7 @@ const HomeScreen = ({ navigation }) => {
               />
             </Block>
           )}
+          */}
 
           {/* Collection */}
           {collection ? (

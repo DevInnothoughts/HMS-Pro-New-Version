@@ -217,6 +217,8 @@ const IPDFeedbackList = ({ navigation }) => {
               />
             </View>
 
+            {/* Promoter / passive / detractor bar — hidden, it repeats the
+                NpsBlock card at the top of the page.
             {s.responses > 0 && (
               <View style={st.bandBlock}>
                 <StackBar
@@ -257,6 +259,7 @@ const IPDFeedbackList = ({ navigation }) => {
                 </Text>
               </View>
             )}
+            */}
           </>
         )}
 

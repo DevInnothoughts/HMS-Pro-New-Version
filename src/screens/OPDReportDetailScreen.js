@@ -5,6 +5,8 @@
 // The visit-type drill-down: tapping New / Follow-up / Post-op / C+P on the
 // Outpatient section lands here. Same endpoint (/Dashboard/OPDReport), same
 // four filters, same gender counts, same call and WhatsApp actions.
+// Tapping a row opens OPDReportPatientDetails (profile + diagnosis history),
+// as the old OPDReportDetails card did.
 //
 // THE DNT RULE IS COPIED, NOT REWRITTEN
 // ─────────────────────────────────────
@@ -391,6 +393,13 @@ const OPDReportDetailScreen = ({ navigation, route }) => {
               multiDay={multiDay}
               onCall={() => call(item.patient_phone)}
               onWhatsapp={() => whatsapp(item.patient_phone)}
+              onOpen={() =>
+                navigation.navigate('OPDReportPatientDetails', {
+                  patient: item,
+                  location,
+                  hue: type.hue,
+                })
+              }
             />
           )}
         />
@@ -409,13 +418,20 @@ const Stat = ({ label, value, note, color }) => (
   </View>
 );
 
-const Row = ({ p, hue, multiDay, onCall, onWhatsapp }) => {
+const Row = ({ p, hue, multiDay, onCall, onWhatsapp, onOpen }) => {
   const confirmed = isConfirmed(p.confirm_time);
   const billed = p.executivechk === 2;
   const dropped = p.is_deleted === 1;
 
   return (
-    <View style={st.row}>
+    <TouchableOpacity
+      style={st.row}
+      onPress={onOpen}
+      activeOpacity={0.7}
+      accessibilityRole="button"
+      accessibilityLabel={`${p.patient_name || 'Patient'} details`}
+      accessibilityHint="Opens patient information and diagnosis history"
+    >
       <View
         style={[
           st.rowSpine,
@@ -473,7 +489,7 @@ const Row = ({ p, hue, multiDay, onCall, onWhatsapp }) => {
           <Icon name="chat" size={17} color="#1E7A5A" />
         </TouchableOpacity>
       </View>
-    </View>
+    </TouchableOpacity>
   );
 };
 
