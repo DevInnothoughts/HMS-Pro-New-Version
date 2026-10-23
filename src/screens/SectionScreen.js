@@ -45,6 +45,7 @@ import {
   CardGrid,
   BreakdownList,
   CountTable,
+  RxRevenueTable,
 } from '../design/components/blocks';
 import {
   Card,
@@ -270,6 +271,23 @@ const SectionScreen = ({ navigation, route }) => {
                 <View key={b.key} style={st.block}>
                   <SectionHead label={b.label} />
                   <CardGrid cards={b.data.cards} note={b.data.note} />
+                </View>
+              );
+            }
+
+            // Prescriptions + revenue in one table (Pharmacy).
+            if (b.kind === 'rxRevenue') {
+              return (
+                <View key={b.key} style={st.block}>
+                  <SectionHead label={b.label} />
+                  <RxRevenueTable
+                    columns={b.data.columns}
+                    rows={b.data.rows}
+                    foot={b.data.foot}
+                    highlight={b.data.highlight}
+                    note={b.data.note}
+                    hue={hue}
+                  />
                 </View>
               );
             }

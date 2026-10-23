@@ -548,6 +548,127 @@ export const CountTable = ({ columns = [], rows = [], foot, note, hue }) => {
 };
 
 /**
+ * RxRevenueTable — prescription conversion and pharmacy revenue in ONE table
+ * (design Option A). Each patient type is one row on two lines:
+ *
+ *   New          39     29     10    74%      ← RX · TAKEN · NOT · CONV.
+ *   Revenue ₹44.2K              per patient ₹1,524
+ *
+ * Revenue and per patient come from the TAKEN prescriptions, so the two lines
+ * describe the same patients. The second line is left out for a row with no
+ * revenue figure (an older backend), so the counts still show.
+ *
+ *   columns  ['RX', 'TAKEN', 'NOT', 'CONV.']
+ *   rows     [{ key, label, values: [{ v, tone? }], revenue, perPatient }]
+ *   foot       same shape as a row
+ *   highlight  { label, value } — a strip under the table that stands out
+ *              (counter sales without prescription)
+ */
+export const RxRevenueTable = ({
+  columns = [],
+  rows = [],
+  foot,
+  highlight,
+  note,
+  hue,
+}) => {
+  if (!rows.length) return null;
+  const toneColor = tone =>
+    tone === 'good'
+      ? '#1E7A5A'
+      : tone === 'warn'
+      ? '#B26A00'
+      : tone === 'bad'
+      ? T.crit
+      : T.text;
+
+  const Row = ({ r, total, last }) => (
+    <View
+      style={[
+        s.rxRow,
+        total && s.ctFoot,
+        last && !total && { borderBottomWidth: 0 },
+      ]}
+    >
+      <View style={s.rxLine}>
+        <Text
+          style={[s.rxLabel, total && s.ctFootLabel]}
+          numberOfLines={1}
+          maxFontSizeMultiplier={1.2}
+        >
+          {r.label}
+        </Text>
+        {r.values.map((x, i) => (
+          <Text
+            key={i}
+            style={[
+              s.rxVal,
+              { color: toneColor(x.tone) },
+              total && s.ctFootVal,
+            ]}
+            numberOfLines={1}
+            adjustsFontSizeToFit
+            maxFontSizeMultiplier={1.2}
+          >
+            {x.v}
+          </Text>
+        ))}
+      </View>
+      {r.revenue != null && (
+        <View style={s.rxMoney}>
+          <Text style={s.rxMoneyCap} maxFontSizeMultiplier={1.2}>
+            Revenue{' '}
+            <Text style={[s.rxMoneyVal, total && s.ctFootVal]}>
+              {r.revenue}
+            </Text>
+          </Text>
+          <Text style={s.rxMoneyCap} maxFontSizeMultiplier={1.2}>
+            per patient{' '}
+            <Text style={[s.rxPer, total && s.ctFootVal]}>{r.perPatient}</Text>
+          </Text>
+        </View>
+      )}
+    </View>
+  );
+
+  return (
+    <View>
+      <View style={[s.ct, hue && { borderLeftColor: hue }]}>
+        <View style={[s.ctRow, s.ctHead]}>
+          <Text style={[s.rxLabel, s.ctHeadText]} />
+          {columns.map(c => (
+            <Text
+              key={c}
+              style={[s.rxVal, s.ctHeadText]}
+              numberOfLines={1}
+              maxFontSizeMultiplier={1.2}
+            >
+              {c}
+            </Text>
+          ))}
+        </View>
+        {rows.map((r, i) => (
+          <Row key={r.key} r={r} last={i === rows.length - 1 && !foot} />
+        ))}
+        {!!foot && <Row r={foot} total />}
+      </View>
+      {!!highlight && (
+        <View style={s.rxHi}>
+          <Icon name="info-outline" size={16} color="#B26A00" />
+          <Text style={s.rxHiLabel} maxFontSizeMultiplier={1.2}>
+            {highlight.label}
+          </Text>
+          <Text style={s.rxHiVal} maxFontSizeMultiplier={1.2}>
+            {highlight.value}
+          </Text>
+        </View>
+      )}
+      {!!note && <Text style={s.note}>{note}</Text>}
+    </View>
+  );
+};
+
+/**
  * A compact five-column funnel table: source, leads, booked, visited, IPD,
  * with conversion beneath each row.
  *
@@ -1059,6 +1180,68 @@ const s = StyleSheet.create({
     color: T.muted,
   },
   ctFootVal: { fontWeight: '700' },
+
+  // RxRevenueTable — the two-line rows.
+  rxRow: {
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: T.lineSoft,
+  },
+  rxLine: { flexDirection: 'row', alignItems: 'center' },
+  rxLabel: { flex: 1.3, fontSize: 12.5, fontFamily: F.medium, color: T.text },
+  rxVal: {
+    flex: 1,
+    textAlign: 'right',
+    fontFamily: F.mono,
+    fontSize: 14,
+    fontWeight: '600',
+  },
+  rxMoney: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'baseline',
+    marginTop: 5,
+  },
+  rxMoneyCap: { fontSize: 11, color: T.muted, fontFamily: F.regular },
+  rxMoneyVal: {
+    fontSize: 12.5,
+    fontFamily: F.mono,
+    fontWeight: '600',
+    color: T.text,
+  },
+  // The highlighted strip under the table — amber, so it reads as "look at
+  // this", not as an error.
+  rxHi: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    marginTop: 9,
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: '#F0D9B5',
+    backgroundColor: '#FDF6EA',
+  },
+  rxHiLabel: {
+    flex: 1,
+    fontSize: 12.5,
+    fontFamily: F.medium,
+    color: '#7A4A00',
+  },
+  rxHiVal: {
+    fontSize: 14.5,
+    fontFamily: F.mono,
+    fontWeight: '700',
+    color: '#7A4A00',
+  },
+  rxPer: {
+    fontSize: 13.5,
+    fontFamily: F.mono,
+    fontWeight: '700',
+    color: '#1E7A5A',
+  },
 
   bdCard: {
     backgroundColor: T.card,

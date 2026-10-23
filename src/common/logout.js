@@ -21,6 +21,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import firestore from '@react-native-firebase/firestore';
 import { clearLocation } from '../store/locationSlice';
 import { clearUserCache } from '../ticketing/api';
+import { clearAll as clearQueryCache } from '../api/queryCache';
 
 /**
  * Log the current user out.
@@ -69,6 +70,9 @@ export async function logout({
     ]);
     if (dispatch) dispatch(clearLocation());
     await clearUserCache();
+    // Stored Branch Summary / Target Analysis / Branch Trend figures — the
+    // next person to log in on this phone must not see them.
+    await clearQueryCache();
 
     // Reset rather than navigate: wipe the back stack so the hardware back
     // button can't walk back into an authenticated screen after logout.

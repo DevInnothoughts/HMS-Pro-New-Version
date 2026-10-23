@@ -27,6 +27,7 @@ import {
 } from 'react-native-paper';
 import { Card } from 'react-native-paper';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { clearAll as clearQueryCache } from '../api/queryCache';
 import { useDispatch, useSelector } from 'react-redux';
 import { clearLocation } from '../store/locationSlice';
 import { DonutChart } from 'react-native-circular-chart';
@@ -360,6 +361,8 @@ const AdminHome = ({ navigation }) => {
       }
       await AsyncStorage.setItem('deviceId', '');
       await AsyncStorage.setItem('mobile', '');
+      // Stored Branch Summary / Target Analysis figures — see api/queryCache.
+      await clearQueryCache();
       navigation.navigate('EnterMobile');
     } catch (error) {
       console.error('Logout Error:', error);
@@ -419,7 +422,7 @@ const AdminHome = ({ navigation }) => {
     },
     {
       image: require('../../assets/pharmacy.png'),
-      label: 'Evital Pharmacy',
+      label: 'Pharmacy Collection',
       routeName: 'EvitalPharmacyData',
     },
   ];

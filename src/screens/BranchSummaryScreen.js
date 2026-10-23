@@ -53,6 +53,20 @@
 // MoM / YoY growth lives in the totals cards above and on Branch Trend — in
 // six columns on a phone it would not be readable.
 //
+// ⚠️ THE TABLE SCROLLS SIDEWAYS — IT NEVER SHRINKS ITS TYPE
+// ─────────────────────────────────────────────────────────
+// Squeezing eight columns into a phone's width meant 7.5–10.5pt type, and
+// adjustsFontSizeToFit shrank it further on iPhone. Now (design Option A) the
+// # / city column is FROZEN on the left and the six figures, at 14pt in fixed
+// columns, scroll sideways beside it — so a row's name never leaves the screen
+// while its numbers are read. Names are smaller than the figures on purpose:
+// they identify the row, the figures are what is compared. Cities alternate
+// shading; the compared column is a tinted stripe. The figures stretch to
+// fill the screen when it is wider than them. The screen is a plain ScrollView
+// rather than a FlatList, because the table is two side-by-side stacks a list
+// cannot split across header / items / footer; with ~25 cities there is
+// nothing to virtualise.
+//
 // ⚠️ A BRANCH WITH NO CITY BECOMES ITS OWN
 // ────────────────────────────────────────
 // Ten branches are the only one in their city, and a branch added tomorrow will
@@ -64,24 +78,32 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   ActivityIndicator,
-  FlatList,
   RefreshControl,
   ScrollView,
   StyleSheet,
   Text,
   TextInput,
   TouchableOpacity,
+  useWindowDimensions,
   View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import Icon from 'react-native-vector-icons/MaterialIcons';
-import { useSelector } from 'react-redux';
+import { useDispatch, useSelector } from 'react-redux';
 
 import AppDrawer from '../common/AppDrawer';
 import { get } from '../api/client';
+import {
+  cached,
+  fetchedAt,
+  peekAsync,
+  rangeKey,
+  updatedLabel,
+} from '../api/queryCache';
 import ScopePicker from '../design/components/ScopePicker';
+import SummaryTabBar from '../design/components/SummaryTabBar';
 import { useScopeRange } from '../scope/useScopeRange';
-import { scopeLabel } from '../store/scopeSlice';
+import { scopeLabel, setPreset } from '../store/scopeSlice';
 import { F, T, inr, inrCompact, num, tint } from '../design/tokens';
 
 const ENDPOINT = '/overview/branchSummaryV2';
@@ -91,6 +113,13 @@ const ENDPOINT = '/overview/branchSummaryV2';
 // Without this the app gave up at 20s and showed "timed out" while the server
 // was still working.
 const TIMEOUT_MS = 180000;
+
+// ⚠️ OPENS ON THE CURRENT MONTH — ONCE PER APP SESSION
+// The date scope is app-wide (redux), and its own default is Today. This
+// screen asks for 'This Month' the FIRST time it mounts in a session only, so
+// a range the user then picks — here or anywhere — is never overwritten when
+// they come back. Module-level on purpose: it resets when the app restarts.
+let monthDefaulted = false;
 
 /**
  * Branch → city. Only multi-branch cities are listed; anything absent becomes
@@ -190,27 +219,30 @@ const cmp = v => {
 };
 
 // The table's number columns, left to right. `w` is shared by the header and
-// every row so the figures stack straight down.
+// every row so the figures stack straight down. Sized for 13pt figures — the
+// table scrolls sideways rather than shrinking them (see header).
 const COLS = [
-  { key: 'newPatients', head: 'NEW\nPT', w: 34, spoken: 'new patients' },
+  { key: 'newPatients', head: 'NEW', w: 56, spoken: 'new patients' },
   {
     key: 'revenuePerNewPatient',
-    head: 'REV/\nNEW',
-    w: 37,
+    head: 'REV/NEW',
+    w: 70,
     spoken: 'revenue per new patient',
     money: true,
   },
-  { key: 'opdPerNewPatient', head: '\nOPD', w: 37, spoken: 'OPD', money: true },
-  { key: 'ipdPerNewPatient', head: '\nIPD', w: 37, spoken: 'IPD', money: true },
-  { key: 'labPerNewPatient', head: '\nLAB', w: 33, spoken: 'lab', money: true },
+  { key: 'opdPerNewPatient', head: 'OPD', w: 62, spoken: 'OPD', money: true },
+  { key: 'ipdPerNewPatient', head: 'IPD', w: 62, spoken: 'IPD', money: true },
+  { key: 'labPerNewPatient', head: 'LAB', w: 58, spoken: 'lab', money: true },
   {
     key: 'pharmacyPerNewPatient',
-    head: '\nPHARM',
-    w: 37,
+    head: 'PHARM',
+    w: 68,
     spoken: 'pharmacy',
     money: true,
   },
 ];
+// The frozen # + city column. Everything right of it scrolls sideways.
+const FROZEN_W = 104;
 
 /** "Pune: new patients 1.2K, revenue per new patient ₹18.4K, …" */
 const spokenRow = (name, x) =>
@@ -340,8 +372,28 @@ const BranchSummaryScreen = ({ navigation, route }) => {
   const locationArray = useSelector(s => s.location.locationArray);
   const scope = useSelector(s => s.scope);
   const { from, to } = useScopeRange(route);
+  const dispatch = useDispatch();
+  // Hold the first read until the month default is in place — otherwise the
+  // slow all-branch read runs once for Today and again for the month.
+  const [ready, setReady] = useState(
+    () =>
+      monthDefaulted ||
+      scope.preset === 'month' ||
+      // A caller that passed its own dates (useScopeRange) wins.
+      !!(route?.params?.fromDate && route?.params?.toDate),
+  );
+  useEffect(() => {
+    if (ready) {
+      monthDefaulted = true;
+      return;
+    }
+    monthDefaulted = true;
+    dispatch(setPreset('month'));
+    setReady(true);
+  }, [ready, dispatch]);
 
   const [data, setData] = useState(null);
+  const [updatedAt, setUpdatedAt] = useState(null);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState('');
@@ -351,15 +403,22 @@ const BranchSummaryScreen = ({ navigation, route }) => {
   const [menuOpen, setMenuOpen] = useState(false);
   const [scopeOpen, setScopeOpen] = useState(false);
 
-  const metric = METRICS.find(m => m.key === metricKey) || METRICS[0];
+  // The table fills the screen width at least (minus the 16pt gutters).
+  const { width: winW } = useWindowDimensions();
+  const tableMinW = winW - 32;
 
   const branchList = useMemo(
     () => (Array.isArray(locationArray) ? locationArray.filter(Boolean) : []),
     [locationArray],
   );
 
+  // ⚠️ CACHED ON THE PHONE — see src/api/queryCache.js. Opening this screen,
+  // even after the app was closed, shows the last stored figures with no
+  // server call. ONLY pull-to-refresh (force) reads all the branches again.
+  // A range never read before has nothing stored, so it is fetched once.
+  const rKey = rangeKey(scope);
   const load = useCallback(
-    async (quiet = false) => {
+    async ({ quiet = false, force = false } = {}) => {
       // No branches → the server would reject the call with a 400.
       if (!branchList.length) {
         setError('No branches are assigned to this login.');
@@ -367,16 +426,32 @@ const BranchSummaryScreen = ({ navigation, route }) => {
         setRefreshing(false);
         return;
       }
+      const locations = branchList.join(',');
+      const key = `${ENDPOINT}|${rKey}|${locations}`;
+
+      // Already have it: paint at once — no request.
+      const hit = force ? undefined : await peekAsync(key);
+      if (hit !== undefined) {
+        setData(hit);
+        setUpdatedAt(fetchedAt(key));
+        setError('');
+        setLoading(false);
+        setRefreshing(false);
+        return;
+      }
+
       if (!quiet) setLoading(true);
       setError('');
       try {
-        setData(
-          await get(
-            ENDPOINT,
-            { from, to, locations: branchList.join(',') },
-            { timeout: TIMEOUT_MS },
-          ),
+        const res = await cached(
+          key,
+          () => get(ENDPOINT, { from, to, locations }, { timeout: TIMEOUT_MS }),
+          { force },
         );
+        setData(res);
+        setUpdatedAt(fetchedAt(key));
+        // Branches that could not be read are kept too and listed in the
+        // footer — pull to refresh to try them again.
       } catch (e) {
         setError(e.message);
       } finally {
@@ -384,12 +459,12 @@ const BranchSummaryScreen = ({ navigation, route }) => {
         setRefreshing(false);
       }
     },
-    [from, to, branchList],
+    [from, to, rKey, branchList],
   );
 
   useEffect(() => {
-    load();
-  }, [load]);
+    if (ready) load();
+  }, [load, ready]);
 
   const totals = data?.totals || {};
   const totalsMix = mixFields(totals.mix, totals.newPatients);
@@ -463,6 +538,10 @@ const BranchSummaryScreen = ({ navigation, route }) => {
         <View style={st.hdrBottom}>
           <Text style={st.hdrSub}>
             {num(rows.length)} cities · {num(totals.branches)} branches
+            {/* How old the figures are — they may come from the cache. */}
+            {updatedAt
+              ? `\n${updatedLabel(updatedAt)} · pull down to refresh`
+              : ''}
           </Text>
           {/* The SAME redux scope the rest of the app uses, so a range chosen
               here carries into OPD, IPD and the reports — and vice versa. */}
@@ -540,8 +619,8 @@ const BranchSummaryScreen = ({ navigation, route }) => {
           </View>
         </View>
 
-        {/* The metric picker replaces horizontal scrolling. Pick the column you
-            care about; cities AND their branches re-sort and lead with it. */}
+        {/* Pick the column you care about; cities AND their branches re-sort
+            and lead with it, and its column is highlighted in the table. */}
         <Text style={st.blockLabel}>COMPARE BY</Text>
         <ScrollView
           horizontal
@@ -585,58 +664,23 @@ const BranchSummaryScreen = ({ navigation, route }) => {
           )}
         </View>
 
-        {/* Table head — top of the table card. Tapping a column sorts by it. */}
-        <View style={st.tHeadWrap}>
-          <Text style={st.tCaption}>
-            ₹ figures are per new patient · K thousand · L lakh · Cr crore
-          </Text>
-          <View style={st.tHead}>
-            <Text style={st.tRank}>#</Text>
-            <Text style={[st.tHeadText, st.tName]}>CITY</Text>
-            {COLS.map(c => {
-              const on = metricKey === c.key;
-              return (
-                <TouchableOpacity
-                  key={c.key}
-                  onPress={() => setMetricKey(c.key)}
-                  style={[st.tCell, { width: c.w }, on && st.tCellOn]}
-                  accessibilityRole="button"
-                  accessibilityState={{ selected: on }}
-                  accessibilityLabel={`Sort by ${c.spoken}`}
-                >
-                  <Text style={[st.tHeadText, st.tRight, on && st.tHeadOn]}>
-                    {c.head}
-                  </Text>
-                </TouchableOpacity>
-              );
-            })}
-            <View style={st.tChevron} />
-          </View>
-        </View>
+        <Text style={st.tCaption}>
+          ₹ figures are per new patient · K thousand · L lakh · Cr crore · tap a
+          heading to sort · swipe the figures for every column
+        </Text>
       </View>
     </View>
   );
 
   // Bottom row of the table: the whole estate, pooled server-side.
-  const totalRow =
-    !loading && rows.length > 0 && !query ? (
-      <View style={[st.tRow, st.tTotal, st.tLast]}>
-        <View style={st.tRank} />
-        <Text style={[st.tName, st.tTotalName]} numberOfLines={1}>
-          All branches
-        </Text>
-        <TableCells
-          x={{
-            newPatients: totals.newPatients,
-            revenuePerNewPatient: totals.revenuePerNewPatient,
-            ...totalsMix,
-          }}
-          metricKey={metricKey}
-          bold
-        />
-        <View style={st.tChevron} />
-      </View>
-    ) : null;
+  const totalX =
+    rows.length > 0 && !query
+      ? {
+          newPatients: totals.newPatients,
+          revenuePerNewPatient: totals.revenuePerNewPatient,
+          ...totalsMix,
+        }
+      : null;
 
   const footer = failed.length ? (
     <View style={st.failed}>
@@ -657,53 +701,48 @@ const BranchSummaryScreen = ({ navigation, route }) => {
 
   return (
     <SafeAreaView style={st.screen} edges={['top']}>
-      <FlatList
-        data={loading ? [] : rows}
-        keyExtractor={c => c.name}
-        ListHeaderComponent={header}
-        ListFooterComponent={
-          <>
-            {totalRow}
-            {footer}
-          </>
-        }
+      <ScrollView
         contentContainerStyle={{ paddingBottom: 32 }}
+        keyboardShouldPersistTaps="handled"
         refreshControl={
           <RefreshControl
             refreshing={refreshing}
             onRefresh={() => {
               setRefreshing(true);
-              load(true);
+              load({ quiet: true, force: true });
             }}
             tintColor={T.brand}
           />
         }
-        ListEmptyComponent={
-          loading && !refreshing ? (
-            <View style={st.centre}>
-              <ActivityIndicator color={T.brand} />
-              <Text style={st.loadingNote}>
-                Reading every branch — this takes a moment.
-              </Text>
-            </View>
-          ) : (
-            <Text style={st.empty}>{error || 'No data for this period.'}</Text>
-          )
-        }
-        renderItem={({ item, index }) => (
-          <CityRow
-            c={item}
-            rank={index + 1}
-            last={index === rows.length - 1 && !totalRow}
-            metric={metric}
-            open={openCity === item.name}
-            onToggle={() =>
-              setOpenCity(openCity === item.name ? null : item.name)
-            }
+      >
+        {header}
+
+        {loading && !refreshing ? (
+          <View style={st.centre}>
+            <ActivityIndicator color={T.brand} />
+            <Text style={st.loadingNote}>
+              Reading every branch — this takes a moment.
+            </Text>
+          </View>
+        ) : !rows.length ? (
+          <Text style={st.empty}>{error || 'No data for this period.'}</Text>
+        ) : (
+          <CityTable
+            cities={rows}
+            totalX={totalX}
+            metricKey={metricKey}
+            onSort={setMetricKey}
+            openCity={openCity}
+            onToggleCity={name => setOpenCity(openCity === name ? null : name)}
             onOpenBranch={openBranch}
+            minWidth={tableMinW}
           />
         )}
-      />
+
+        {footer}
+      </ScrollView>
+
+      <SummaryTabBar navigation={navigation} active="summary" />
 
       <AppDrawer
         visible={menuOpen}
@@ -733,9 +772,10 @@ const Stat = ({ label, value, growth, field, wide }) => (
 
 /**
  * The six figures of one row as fixed-width cells (COLS). The compared column
- * is tinted and bold in the brand colour, matching its header.
+ * is tinted and bold in the brand colour, matching its header. Cells grow
+ * together when the table is wider than its columns, so they stay aligned.
  */
-const TableCells = ({ x, metricKey, small, bold }) =>
+const TableCells = ({ x, metricKey, kind }) =>
   COLS.map(c => {
     const on = metricKey === c.key;
     const v = x[c.key];
@@ -744,14 +784,17 @@ const TableCells = ({ x, metricKey, small, bold }) =>
         <Text
           style={[
             st.tNum,
-            small && st.tNumSmall,
-            (bold || on) && st.tNumBold,
+            kind === 'branch' && st.tNumSmall,
+            (kind === 'total' || on) && st.tNumBold,
             on && st.tNumOn,
             v == null && st.tNumNone,
           ]}
+          // No adjustsFontSizeToFit: the columns are wide enough, and on
+          // iPhone it was shrinking figures well below the set size.
           numberOfLines={1}
-          adjustsFontSizeToFit
-          minimumFontScale={0.75}
+          // Rows have fixed heights (ROW_H); unbounded Dynamic Type would
+          // clip the figures.
+          maxFontSizeMultiplier={1.15}
         >
           {cmp(v)}
         </Text>
@@ -759,91 +802,222 @@ const TableCells = ({ x, metricKey, small, bold }) =>
     );
   });
 
-/**
- * One city: a single table row. Tapping opens its branches inline beneath it;
- * a city of one IS the branch, so tapping it goes straight to the trend.
- */
-const CityRow = ({ c, rank, last, metric, open, onToggle, onOpenBranch }) => {
-  const multi = c.branches.length > 1;
-  const onPress = multi ? onToggle : () => onOpenBranch(c.branches[0].location);
-  const cityBest = Math.max(...c.branches.map(x => n0(x[metric.key])), 1);
+// Row heights are FIXED: the frozen column and the scrolling figures are two
+// separate stacks, and fixed heights are what keep each row level across both.
+const ROW_H = { head: 34, city: 40, branch: 34, total: 38 };
 
-  return (
-    <View style={[st.tGroup, last && !open && st.tLast]}>
-      <TouchableOpacity
-        style={[st.tRow, open && st.tRowOpen]}
-        activeOpacity={0.7}
-        onPress={onPress}
-        accessibilityRole="button"
-        accessibilityState={multi ? { expanded: open } : undefined}
-        accessibilityLabel={`${spokenRow(c.name, c)}${
-          multi ? `. ${c.branches.length} branches` : '. Open trend'
-        }`}
-      >
-        <Text style={st.tRank}>{rank}</Text>
-        <View style={st.tName}>
-          <Text style={st.cityName} numberOfLines={2}>
-            {c.name}
-          </Text>
-          {multi && (
-            <Text style={st.cityMeta}>{c.branches.length} branches</Text>
-          )}
-        </View>
-        <TableCells x={c} metricKey={metric.key} />
-        <Icon
-          name={multi ? (open ? 'expand-less' : 'expand-more') : 'show-chart'}
-          size={15}
-          color={T.chevron}
-          style={st.tChevron}
-        />
-      </TouchableOpacity>
-
-      {open && (
-        <View style={[st.branchList, last && st.tLastInner]}>
-          {c.branches.map((b, i) => (
-            <BranchRow
-              key={b.location}
-              b={b}
-              metric={metric}
-              cityBest={cityBest}
-              first={i === 0}
-              onPress={() => onOpenBranch(b.location)}
-            />
-          ))}
-        </View>
-      )}
-    </View>
-  );
-};
+const rowBg = l =>
+  l.kind === 'branch'
+    ? '#F7F9F8'
+    : l.kind === 'total'
+    ? T.canvas
+    : l.open
+    ? tint(T.brand)
+    : l.zebra
+    ? T.subtle
+    : T.card;
 
 /**
- * One branch inside an open city: the same row, same columns, smaller type.
- * The dot says how the branch sits against the city's best on the compared
- * figure (green ≥70%, amber ≥40%, brown below).
+ * The city table, Option A: the # / city column is FROZEN on the left; the six
+ * figures scroll sideways beside it. Cities alternate shading; an open city is
+ * tinted and its branches follow on a lighter ground. Both halves render from
+ * the same `lines`, so they can never disagree about order.
  */
-const BranchRow = ({ b, metric, cityBest, first, onPress }) => {
-  const value = b[metric.key];
-  const share = value != null ? (n0(value) / cityBest) * 100 : null;
-  const hue =
-    share == null ? T.muted2 : share >= 70 ? GOOD : share >= 40 ? MID : LOW;
+const CityTable = ({
+  cities,
+  totalX,
+  metricKey,
+  onSort,
+  openCity,
+  onToggleCity,
+  onOpenBranch,
+  minWidth,
+}) => {
+  const lines = [];
+  cities.forEach((c, i) => {
+    const multi = c.branches.length > 1;
+    const open = multi && openCity === c.name;
+    lines.push({
+      kind: 'city',
+      key: `c:${c.name}`,
+      rank: i + 1,
+      name: c.name,
+      meta: multi ? `${c.branches.length} branches` : null,
+      x: c,
+      multi,
+      open,
+      zebra: i % 2 === 1,
+      onPress: multi
+        ? () => onToggleCity(c.name)
+        : () => onOpenBranch(c.branches[0].location),
+      a11y: `${spokenRow(c.name, c)}${
+        multi ? `. ${c.branches.length} branches` : '. Open trend'
+      }`,
+    });
+    if (open) {
+      // The dot: how each branch sits against the city's best on the compared
+      // figure (green ≥70%, amber ≥40%, brown below).
+      const best = Math.max(...c.branches.map(b => n0(b[metricKey])), 1);
+      c.branches.forEach(b => {
+        const v = b[metricKey];
+        const share = v == null ? null : (n0(v) / best) * 100;
+        lines.push({
+          kind: 'branch',
+          key: `b:${b.location}`,
+          name: b.location,
+          x: b,
+          hue:
+            share == null
+              ? T.muted2
+              : share >= 70
+              ? GOOD
+              : share >= 40
+              ? MID
+              : LOW,
+          onPress: () => onOpenBranch(b.location),
+          a11y: `${spokenRow(b.location, b)}. Open trend`,
+        });
+      });
+    }
+  });
+  if (totalX) {
+    lines.push({
+      kind: 'total',
+      key: 'total',
+      name: 'All branches',
+      x: totalX,
+    });
+  }
+
+  const figuresW = COLS.reduce((a, c) => a + c.w, 0);
 
   return (
-    <TouchableOpacity
-      style={[st.tRow, st.tBranch, !first && st.branchDivider]}
-      activeOpacity={0.7}
-      onPress={onPress}
-      accessibilityRole="button"
-      accessibilityLabel={`${spokenRow(b.location, b)}. Open trend`}
-    >
-      <View style={st.tRank}>
-        <View style={[st.dot, { backgroundColor: hue }]} />
+    <View style={st.table}>
+      <View style={st.tBody}>
+        {/* ── Frozen: # and city ── */}
+        <View style={st.frozen}>
+          <View style={[st.leftRow, st.tHead, { height: ROW_H.head }]}>
+            <Text style={[st.tHeadText, st.tRank]}>#</Text>
+            <Text style={st.tHeadText}>CITY</Text>
+          </View>
+          {lines.map(l => {
+            const Row = l.onPress ? TouchableOpacity : View;
+            return (
+              <Row
+                key={l.key}
+                style={[
+                  st.leftRow,
+                  { height: ROW_H[l.kind], backgroundColor: rowBg(l) },
+                ]}
+                activeOpacity={0.7}
+                onPress={l.onPress}
+                accessibilityRole={l.onPress ? 'button' : undefined}
+                accessibilityState={l.multi ? { expanded: l.open } : undefined}
+                accessibilityLabel={l.a11y}
+              >
+                {l.kind === 'branch' ? (
+                  <View style={st.tRank}>
+                    <View style={[st.dot, { backgroundColor: l.hue }]} />
+                  </View>
+                ) : (
+                  <Text style={st.tRank}>{l.rank || ''}</Text>
+                )}
+                <View style={st.tName}>
+                  <Text
+                    style={
+                      l.kind === 'branch'
+                        ? st.branchName
+                        : l.kind === 'total'
+                        ? st.tTotalName
+                        : st.cityName
+                    }
+                    numberOfLines={1}
+                    maxFontSizeMultiplier={1}
+                  >
+                    {l.name}
+                  </Text>
+                  {!!l.meta && (
+                    <Text style={st.cityMeta} maxFontSizeMultiplier={1}>
+                      {l.meta}
+                    </Text>
+                  )}
+                </View>
+                {l.kind !== 'total' && (
+                  <Icon
+                    name={
+                      l.multi
+                        ? l.open
+                          ? 'expand-less'
+                          : 'expand-more'
+                        : 'show-chart'
+                    }
+                    size={l.kind === 'branch' ? 12 : 14}
+                    color={T.chevron}
+                  />
+                )}
+              </Row>
+            );
+          })}
+        </View>
+
+        {/* ── Scrolling: the six figures ── */}
+        <ScrollView
+          horizontal
+          showsHorizontalScrollIndicator
+          style={st.figures}
+        >
+          <View
+            style={{ minWidth: Math.max(figuresW, minWidth - FROZEN_W - 2) }}
+          >
+            <View style={[st.figRow, st.tHead, { height: ROW_H.head }]}>
+              {COLS.map(c => {
+                const on = metricKey === c.key;
+                return (
+                  <TouchableOpacity
+                    key={c.key}
+                    onPress={() => onSort(c.key)}
+                    style={[
+                      st.tCell,
+                      st.tHeadCell,
+                      { width: c.w },
+                      on && st.tCellOn,
+                    ]}
+                    accessibilityRole="button"
+                    accessibilityState={{ selected: on }}
+                    accessibilityLabel={`Sort by ${c.spoken}`}
+                  >
+                    <Text style={[st.tHeadText, on && st.tHeadOn]}>
+                      {c.head}
+                      {on ? ' ↓' : ''}
+                    </Text>
+                  </TouchableOpacity>
+                );
+              })}
+            </View>
+            {lines.map(l => {
+              const Row = l.onPress ? TouchableOpacity : View;
+              return (
+                <Row
+                  key={l.key}
+                  style={[
+                    st.figRow,
+                    { height: ROW_H[l.kind], backgroundColor: rowBg(l) },
+                  ]}
+                  activeOpacity={0.7}
+                  onPress={l.onPress}
+                  // The frozen half carries the spoken label for this row.
+                  accessible={false}
+                  importantForAccessibility="no-hide-descendants"
+                  accessibilityElementsHidden
+                >
+                  <TableCells x={l.x} metricKey={metricKey} kind={l.kind} />
+                </Row>
+              );
+            })}
+          </View>
+        </ScrollView>
       </View>
-      <Text style={[st.tName, st.branchName]} numberOfLines={2}>
-        {b.location}
-      </Text>
-      <TableCells x={b} metricKey={metric.key} small />
-      <Icon name="show-chart" size={14} color={T.chevron} style={st.tChevron} />
-    </TouchableOpacity>
+    </View>
   );
 };
 
@@ -1052,135 +1226,118 @@ const st = StyleSheet.create({
 
   // Revenue mix per new patient — the line under each city / branch row.
 
-  cityName: { fontSize: 11.5, fontFamily: F.medium, color: T.text },
+  // City and branch names are deliberately smaller than the figures: the
+  // names only identify the row, the figures are what is being compared.
+  cityName: { fontSize: 10.5, fontFamily: F.medium, color: T.text },
   cityMeta: {
     fontFamily: F.mono,
     fontSize: 8.5,
     color: T.muted2,
-    marginTop: 2,
+    marginTop: 1,
   },
+  branchName: { fontSize: 10, fontFamily: F.regular, color: T.muted },
 
-  // ── The comparison table ─────────────────────────────────────────────────
-  // Header, city groups and the total row are stacked pieces of ONE card:
-  // the header carries the top corners, the last piece the bottom ones.
-  tHeadWrap: {
-    marginTop: 14,
-    backgroundColor: T.subtle,
-    borderWidth: 1,
-    borderColor: T.line,
-    borderTopLeftRadius: 12,
-    borderTopRightRadius: 12,
-    paddingTop: 8,
-  },
+  // ── The comparison table (Option A) ──────────────────────────────────────
+  // One card. Left: the frozen # / city column (FROZEN_W) with a shadow edge.
+  // Right: a horizontal ScrollView of the six figures. Every row is drawn
+  // twice, once per half, at the same fixed height (ROW_H).
   tCaption: {
-    fontSize: 9,
+    fontSize: 11,
+    lineHeight: 15,
     color: T.muted2,
     fontFamily: F.regular,
-    paddingHorizontal: 10,
-    marginBottom: 6,
+    marginTop: 14,
+    marginBottom: 8,
+    marginHorizontal: 2,
   },
+  table: {
+    marginHorizontal: 16,
+    backgroundColor: T.card,
+    borderWidth: 1,
+    borderColor: T.line,
+    borderRadius: 12,
+    overflow: 'hidden',
+  },
+  tBody: { flexDirection: 'row' },
+  frozen: {
+    width: FROZEN_W,
+    backgroundColor: T.card,
+    borderRightWidth: 1,
+    borderRightColor: T.line,
+    // Shadow edge over the figures as they scroll under it (iOS; Android
+    // keeps the border line).
+    zIndex: 1,
+    shadowColor: '#0F1A16',
+    shadowOffset: { width: 3, height: 0 },
+    shadowOpacity: 0.12,
+    shadowRadius: 4,
+  },
+  figures: { flex: 1 },
   tHead: {
-    flexDirection: 'row',
-    alignItems: 'stretch',
-    paddingLeft: 6,
-    paddingRight: 4,
+    backgroundColor: T.subtle,
+    borderBottomWidth: 1,
+    borderBottomColor: T.line,
+    alignItems: 'flex-end',
   },
   tHeadText: {
     fontFamily: F.mono,
-    fontSize: 7.5,
-    letterSpacing: 0.6,
+    fontSize: 10,
+    letterSpacing: 0.5,
     color: T.muted2,
-    paddingVertical: 6,
-    alignSelf: 'flex-end',
+    paddingBottom: 6,
+    textAlign: 'right',
   },
   tHeadOn: { color: T.brand, fontWeight: '700' },
-  tRight: { textAlign: 'right', alignSelf: 'stretch' },
+  tHeadCell: { justifyContent: 'flex-end' },
 
-  tGroup: {
-    marginHorizontal: 16,
-    backgroundColor: T.card,
-    borderLeftWidth: 1,
-    borderRightWidth: 1,
+  leftRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingLeft: 2,
+    paddingRight: 3,
     borderBottomWidth: 1,
-    borderColor: T.line,
-    overflow: 'hidden',
+    borderBottomColor: T.lineSoft,
   },
-  tLast: { borderBottomLeftRadius: 12, borderBottomRightRadius: 12 },
-  tLastInner: { borderBottomLeftRadius: 11, borderBottomRightRadius: 11 },
-  tRow: {
+  figRow: {
     flexDirection: 'row',
     alignItems: 'stretch',
-    minHeight: 42,
-    paddingLeft: 6,
-    paddingRight: 4,
+    borderBottomWidth: 1,
+    borderBottomColor: T.lineSoft,
   },
-  tRowOpen: { backgroundColor: tint(T.brand) },
-  tBranch: { minHeight: 36 },
-  tTotal: {
-    marginHorizontal: 16,
-    backgroundColor: T.subtle,
-    borderWidth: 1,
-    borderTopWidth: 0,
-    borderColor: T.line,
-    minHeight: 40,
-  },
-  tTotalName: {
-    fontFamily: F.semibold,
-    fontSize: 11.5,
-    color: T.text,
-    alignSelf: 'center',
-  },
+  tTotalName: { fontFamily: F.semibold, fontSize: 10.5, color: T.text },
 
   tRank: {
-    width: 16,
-    alignSelf: 'center',
+    width: 15,
     alignItems: 'center',
     textAlign: 'center',
     fontFamily: F.mono,
-    fontSize: 9,
+    fontSize: 9.5,
     color: T.muted2,
   },
-  tName: {
-    flex: 1,
-    minWidth: 0,
-    justifyContent: 'center',
-    paddingVertical: 6,
-    paddingLeft: 2,
-    paddingRight: 4,
-  },
+  tName: { flex: 1, minWidth: 0, paddingLeft: 1, paddingRight: 2 },
   tCell: {
+    flexGrow: 1,
     justifyContent: 'center',
     alignItems: 'flex-end',
-    paddingHorizontal: 2,
+    paddingRight: 10,
+    paddingLeft: 4,
   },
   // The compared column: a tinted stripe straight down the table.
   tCellOn: { backgroundColor: tint(T.brand) },
-  tChevron: { width: 16, alignSelf: 'center', textAlign: 'center' },
   tNum: {
     fontFamily: F.mono,
-    fontSize: 10.5,
+    fontSize: 14,
+    fontWeight: '500',
     color: T.text,
-    letterSpacing: -0.3,
+    letterSpacing: -0.2,
     textAlign: 'right',
   },
-  tNumSmall: { fontSize: 9.5, color: T.muted },
+  tNumSmall: { fontSize: 12.5, fontWeight: '400', color: T.muted },
   tNumBold: { fontWeight: '700' },
   tNumOn: { color: T.brand },
   tNumNone: { color: T.chevron },
 
-  branchList: {
-    backgroundColor: T.subtle,
-    borderTopWidth: 1,
-    borderTopColor: T.line,
-  },
-  branchDivider: { borderTopWidth: 1, borderTopColor: T.lineSoft },
-  dot: { width: 6, height: 6, borderRadius: 3 },
-  branchName: {
-    fontSize: 10.5,
-    fontFamily: F.regular,
-    color: T.muted,
-    alignSelf: 'center',
-  },
+  dot: { width: 7, height: 7, borderRadius: 3.5 },
 
   failed: {
     backgroundColor: '#FBEDEB',

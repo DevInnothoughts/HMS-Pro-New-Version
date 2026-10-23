@@ -28,10 +28,16 @@
 // A server without the mix (older build) simply doesn't show these four; lab
 // says so when the server could not split it out.
 //
-// The "Per new patient" table (exact figures per period) sits right under the
-// top cards, ABOVE the period tabs, the chart toggle and every chart — so the
-// numbers are read first and the charts show their shape. It follows the tab
-// chosen below it.
+// The figures table (exact figures per period) sits right under the top cards,
+// ABOVE the period tabs, the chart toggle and every chart — so the numbers are
+// read first and the charts show their shape. It follows the tab chosen below
+// it, and has two views of its own:
+//   Per new patient (default)  OPD · IPD · LAB · PHARM per new patient
+//   Revenue                    NEW PT · OPD · IPD · LAB · PHARM · TOTAL in ₹
+// The Revenue view is the plain amounts behind the per-new-patient one (each
+// bucket's `mix`, which adds up to totalRevenue), with the new-patient count
+// alongside so either can be checked against the other. It has more columns
+// than a phone is wide, so it scrolls sideways; the period column stays put.
 //
 // ⚠️ QUARTERS AND YEARS ARE FINANCIAL (APR–MAR)
 // ─────────────────────────────────────────────
@@ -75,6 +81,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import Icon from 'react-native-vector-icons/MaterialIcons';
 
 import { get } from '../api/client';
+import { cached, peek } from '../api/queryCache';
 import { F, T, inr, inrCompact, num, tint } from '../design/tokens';
 
 const ENDPOINT = '/overview/branchTrend';
@@ -247,6 +254,13 @@ async function readPeriodV1(location, p) {
     totalRevenue,
     revenuePerNewPatient:
       newPatients > 0 ? Math.round(totalRevenue / newPatients) : null,
+    // Plain amounts, for the Revenue table — same four parts as /branchTrend.
+    mix: {
+      opd: Math.round(n0(b.opdRevenue)),
+      ipd: Math.round(n0(b.ipdRevenue)),
+      lab: Math.round(n0(b.lab)),
+      pharmacy: Math.round(n0(b.pharmacy)),
+    },
     perNewPatient: {
       opd: per(b.opdRevenue),
       ipd: per(b.ipdRevenue),
@@ -280,12 +294,18 @@ const BranchTrendScreen = ({ navigation, route }) => {
   const location = route?.params?.location;
   const city = route?.params?.city;
 
-  const [data, setData] = useState(null);
-  const [loading, setLoading] = useState(true);
+  // Cached per branch (src/api/queryCache.js): re-opening a branch paints its
+  // history at once with no server call; pull-to-refresh reads it again.
+  const cacheKey = `${ENDPOINT}|${location}`;
+  const [data, setData] = useState(() => peek(cacheKey) || null);
+  const [loading, setLoading] = useState(() => peek(cacheKey) === undefined);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState('');
   const [period, setPeriod] = useState('monthly');
   const [fit, setFit] = useState(true); // see header — Fit or Scroll
+  // Figures table view: 'perNew' (default) or 'revenue'. Held here, not in the
+  // table, so it survives the table unmounting while a tab loads.
+  const [tableView, setTableView] = useState('perNew');
   // true once the server has answered 404 for /branchTrend — see header.
   const [fallback, setFallback] = useState(false);
 
@@ -302,7 +322,14 @@ const BranchTrendScreen = ({ navigation, route }) => {
       try {
         if (!fallback) {
           try {
-            setData(await get(ENDPOINT, { location }, { timeout: 60000 }));
+            setData(
+              await cached(
+                cacheKey,
+                () => get(ENDPOINT, { location }, { timeout: 60000 }),
+                // `quiet` is pull-to-refresh: always go to the server.
+                { force: quiet },
+              ),
+            );
             return;
           } catch (e) {
             if (e.status !== 404) throw e;
@@ -325,7 +352,7 @@ const BranchTrendScreen = ({ navigation, route }) => {
         }
       }
     },
-    [location, fallback, period],
+    [location, fallback, period, cacheKey],
   );
 
   // First load; in fallback mode, also whenever a tab not yet read is opened.
@@ -406,10 +433,14 @@ const BranchTrendScreen = ({ navigation, route }) => {
             />
           </View>
 
-          {/* Per new patient table — top of the page, above the tabs and every
-              chart. Shown once the current tab's figures are in. */}
+          {/* Figures table — top of the page, above the tabs and every chart.
+              Per new patient or Revenue; shown once the tab's figures are in. */}
           {hasMix && !(loading && !refreshing) && !error && (
-            <MixTable buckets={buckets} />
+            <FiguresTable
+              buckets={buckets}
+              view={tableView}
+              onView={setTableView}
+            />
           )}
 
           <View style={st.tabs}>
@@ -695,12 +726,152 @@ const PeriodTable = ({ buckets }) => (
   </View>
 );
 
+const TABLE_VIEWS = [
+  { key: 'perNew', label: 'Per New Patient' },
+  { key: 'revenue', label: 'Revenue' },
+];
+
+/**
+ * The figures table with its two views as tabs (see header). Per New Patient
+ * is the default; picking Revenue replaces the table in place.
+ */
+const FiguresTable = ({ buckets, view, onView }) => (
+  <View style={st.card}>
+    <View style={st.tblTabs}>
+      {TABLE_VIEWS.map(v => {
+        const on = view === v.key;
+        return (
+          <TouchableOpacity
+            key={v.key}
+            onPress={() => onView(v.key)}
+            style={[st.tblTab, on && st.tblTabOn]}
+            accessibilityRole="tab"
+            accessibilityState={{ selected: on }}
+          >
+            <Text style={[st.tblTabText, on && st.tblTabTextOn]}>
+              {v.label}
+            </Text>
+          </TouchableOpacity>
+        );
+      })}
+    </View>
+    {view === 'revenue' ? (
+      <RevenueTable buckets={buckets} />
+    ) : (
+      <MixTable buckets={buckets} />
+    )}
+    {buckets.some(b => b.partial) && (
+      <Text style={st.hint}>* In progress — runs to today.</Text>
+    )}
+  </View>
+);
+
+/** Plain number for the Revenue table: 940 · 12.4K · 3.25L · 1.20Cr (no ₹). */
+const amt = v => (v == null ? '—' : inrCompact(v).replace('₹', ''));
+
+// Revenue table columns after PERIOD. `w` is fixed so the scrolled part lines
+// up row to row.
+const REV_COLS = [
+  {
+    key: 'newPatients',
+    head: 'NEW PT',
+    w: 52,
+    get: b => b.newPatients,
+    fmt: v => num(v),
+  },
+  ...MIX.map(m => ({
+    key: m.key,
+    head: m.short,
+    w: 58,
+    color: m.color,
+    get: b => b.mix?.[m.key],
+    fmt: amt,
+  })),
+  {
+    key: 'total',
+    head: 'TOTAL',
+    w: 64,
+    color: REV,
+    bold: true,
+    get: b => b.totalRevenue,
+    fmt: amt,
+  },
+];
+const PERIOD_W = 74;
+
+/**
+ * Plain revenue per period, newest first, with new patients alongside. PERIOD
+ * is frozen on the left; the figures scroll sideways when the phone is narrower
+ * than the table, and stretch to fill it when it is wider.
+ */
+const RevenueTable = ({ buckets }) => {
+  const rows = [...buckets].reverse();
+  const inner = SCREEN_W - 32 - 2; // body padding + card border
+  const figuresW = REV_COLS.reduce((a, c) => a + c.w, 0) + 14; // + right pad
+  const fill = Math.max(figuresW, inner - PERIOD_W - 14);
+  return (
+    <>
+      <Text style={[st.cardSub, { paddingHorizontal: 14 }]}>
+        ₹ · K thousand · L lakh · Cr crore · Total = OPD + IPD + Lab + Pharm
+      </Text>
+      <View style={[st.revWrap, st.th]}>
+        <View style={{ width: PERIOD_W + 14 }}>
+          <View style={[st.revRow, st.revHead, { paddingLeft: 14 }]}>
+            <Text style={[st.revPeriod, st.thText]}>PERIOD</Text>
+          </View>
+          {rows.map(b => (
+            <View key={b.key} style={[st.revRow, { paddingLeft: 14 }]}>
+              <Text style={st.revPeriod} numberOfLines={1}>
+                {b.label}
+                {b.partial ? ' *' : ''}
+              </Text>
+            </View>
+          ))}
+        </View>
+        <ScrollView horizontal showsHorizontalScrollIndicator>
+          <View style={{ minWidth: fill, paddingRight: 14 }}>
+            <View style={[st.revRow, st.revHead]}>
+              {REV_COLS.map(c => (
+                <Text
+                  key={c.key}
+                  style={[
+                    st.revCell,
+                    st.thText,
+                    { width: c.w, flexGrow: 1 },
+                    c.color && { color: c.color },
+                  ]}
+                >
+                  {c.head}
+                </Text>
+              ))}
+            </View>
+            {rows.map(b => (
+              <View key={b.key} style={st.revRow}>
+                {REV_COLS.map(c => (
+                  <Text
+                    key={c.key}
+                    style={[
+                      st.revCell,
+                      { width: c.w, flexGrow: 1 },
+                      c.bold && st.revBold,
+                    ]}
+                    numberOfLines={1}
+                  >
+                    {c.fmt(c.get(b))}
+                  </Text>
+                ))}
+              </View>
+            ))}
+          </View>
+        </ScrollView>
+      </View>
+    </>
+  );
+};
+
 /** Exact figures behind the four mix charts, newest first. */
 const MixTable = ({ buckets }) => (
-  <View style={st.card}>
-    <Text style={[st.cardTitle, { paddingHorizontal: 14 }]}>
-      Per new patient
-    </Text>
+  <>
     <Text style={[st.cardSub, { paddingHorizontal: 14 }]}>
       Adds up to Rev / new pt
     </Text>
@@ -728,10 +899,7 @@ const MixTable = ({ buckets }) => (
         })}
       </View>
     ))}
-    {buckets.some(b => b.partial) && (
-      <Text style={st.hint}>* In progress — runs to today.</Text>
-    )}
-  </View>
+  </>
 );
 
 // `period` is the window the card covers ("Last 12 months" on Monthly), shown
@@ -961,6 +1129,48 @@ const st = StyleSheet.create({
     borderTopColor: T.lineSoft || '#EEF1EF',
   },
   th: { marginTop: 8 },
+
+  // Figures table — Per New Patient / Revenue tabs.
+  tblTabs: {
+    flexDirection: 'row',
+    marginHorizontal: 12,
+    marginBottom: 10,
+    padding: 3,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: T.line,
+    backgroundColor: T.subtle || '#F5F7F6',
+  },
+  tblTab: {
+    flex: 1,
+    paddingVertical: 7,
+    borderRadius: 7,
+    alignItems: 'center',
+  },
+  tblTabOn: { backgroundColor: T.brand },
+  tblTabText: { fontSize: 12, color: T.muted, fontFamily: F.regular },
+  tblTabTextOn: { color: '#fff', fontFamily: F.semibold },
+
+  // Revenue table — fixed row heights so the frozen PERIOD column and the
+  // scrolled figures line up exactly.
+  revWrap: { flexDirection: 'row' },
+  revRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    height: 34,
+    borderTopWidth: 1,
+    borderTopColor: T.lineSoft || '#EEF1EF',
+  },
+  revHead: { height: 30 },
+  revPeriod: { fontFamily: F.mono, fontSize: 10.5, color: T.text },
+  revCell: {
+    textAlign: 'right',
+    fontFamily: F.mono,
+    fontSize: 10.5,
+    color: T.text,
+    paddingLeft: 6,
+  },
+  revBold: { fontWeight: '700', color: REV },
   thText: { fontSize: 7.5, letterSpacing: 0.8, color: T.muted2 },
   tdLabel: { flex: 1.1, fontFamily: F.mono, fontSize: 10.5, color: T.text },
   td: {

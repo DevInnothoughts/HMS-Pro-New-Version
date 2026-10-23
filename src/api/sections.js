@@ -209,9 +209,9 @@ export const SECTION_SHAPERS = {
     blocks: [
       {
         key: 'rx',
-        kind: 'counts',
-        label: 'Prescription conversion',
-        data: pharmacyPrescriptions(data),
+        kind: 'rxRevenue',
+        label: 'Prescriptions & revenue',
+        data: pharmacyRxRevenue(data),
       },
       {
         key: 'modes',
@@ -698,6 +698,71 @@ export function pharmacyPrescriptions(data) {
     rows: rx.byType.map(t => ({ key: t.key, label: t.label, values: vals(t) })),
     foot: { label: 'ALL TYPES', values: vals(rx.totals) },
     note: 'Counter prescriptions only — in-house bills carry no prescription.',
+  };
+}
+
+/**
+ * Prescriptions & revenue — design Option A: the conversion counts and the
+ * pharmacy revenue of the same patients, in ONE table of two-line rows.
+ *
+ *   line 1   RX · TAKEN · NOT · CONV.   (prescriptions.byType)
+ *   line 2   Revenue · per patient      (prescriptions.byType.revenue /
+ *                                        perPatient — TAKEN prescriptions only)
+ *
+ * Both lines come from the same server rows, so per patient is always
+ * revenue ÷ TAKEN. An older backend without the revenue fields shows line 1
+ * only. Rendered by RxRevenueTable (blocks.js).
+ */
+export function pharmacyRxRevenue(data) {
+  const rx = data?.prescriptions;
+  if (!rx || !rx.byType?.length) return null;
+
+  const convTone = pct =>
+    pct == null ? null : pct >= 70 ? 'good' : pct >= 50 ? 'warn' : 'bad';
+  const line = (label, t) => {
+    const pct =
+      t.conversionPct ??
+      (t.total > 0 ? Math.round((t.taken / t.total) * 100) : null);
+    const notTaken = t.notTaken ?? t.total - t.taken;
+    const hasMoney = t.revenue != null;
+    return {
+      label,
+      values: [
+        { v: num(t.total) },
+        { v: num(t.taken), tone: 'good' },
+        { v: num(notTaken), tone: notTaken > 0 ? 'bad' : null },
+        { v: pct == null ? '—' : `${pct}%`, tone: convTone(pct) },
+      ],
+      revenue: hasMoney ? inrCompact(t.revenue) : null,
+      // Full rupees: ₹1.2K hides ₹1,180 vs ₹1,249.
+      perPatient: hasMoney
+        ? t.perPatient == null
+          ? '—'
+          : inr(t.perPatient)
+        : null,
+    };
+  };
+
+  const rt = data?.revenueByType;
+  const left = [];
+  if (rt?.inhouse > 0) left.push(`in-house ${inrCompact(rt.inhouse)}`);
+
+  return {
+    columns: ['RX', 'TAKEN', 'NOT', 'CONV.'],
+    rows: rx.byType.map(t => ({ key: t.key, ...line(t.label, t) })),
+    foot: line('ALL TYPES', rx.totals),
+    // Shown highlighted under the table, not buried in the note — money sold
+    // without a prescription is worth noticing.
+    highlight:
+      rt?.withoutRx > 0
+        ? {
+            label: 'Counter sales without prescription',
+            value: inrCompact(rt.withoutRx),
+          }
+        : null,
+    note:
+      'Counter prescriptions, by the visit each came from. Revenue and per patient count the TAKEN prescriptions.' +
+      (left.length ? ` Not included: ${left.join(', ')}.` : ''),
   };
 }
 

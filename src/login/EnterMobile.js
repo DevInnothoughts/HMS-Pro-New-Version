@@ -100,16 +100,16 @@ const EnterMobile = ({ navigation }) => {
                   dispatch(setLocation(data1.location[0]));
                   dispatch(setSubRole(data1.subRole ? data1.subRole : ''));
                   setLoading(false);
-                  navigation.replace('Home', {
-                    location: data1.location[0],
-                  });
-                  // if (data1.role === 'SuperAdmin') {
-                  //   navigation.replace('BranchSummary');
-                  // } else {
-                  //   navigation.replace('Home', {
-                  //     location: data1.location[0],
-                  //   });
-                  // }
+                  // navigation.replace('Home', {
+                  //   location: data1.location[0],
+                  // });
+                  if (data1.role === 'SuperAdmin') {
+                    navigation.replace('BranchSummary');
+                  } else {
+                    navigation.replace('Home', {
+                      location: data1.location[0],
+                    });
+                  }
                 } else {
                   if (data1.role && data1.role === 'Doctor') {
                     dispatch(setLocationArray(data1.location));

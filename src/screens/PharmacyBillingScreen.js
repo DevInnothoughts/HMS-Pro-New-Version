@@ -259,7 +259,7 @@ const PharmacyBillingScreen = ({ navigation, route }) => {
     <View>
       <SectionHeader
         code="PHARMACY"
-        name="Pharmacy Billing"
+        name="Pharmacy Collection"
         sub="Counter invoices and payment settlement"
         hue={HUE_P}
         onBack={() => navigation.goBack()}

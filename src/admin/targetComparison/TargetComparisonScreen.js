@@ -11,6 +11,7 @@
 import React, { useEffect, useState, useCallback, useMemo } from 'react';
 import {
   View,
+  RefreshControl,
   ScrollView,
   StyleSheet,
   TouchableOpacity,
@@ -42,11 +43,19 @@ import {
   fetchComparisonBranches,
   fetchComparisonDetail,
   currentMonthPeriodIndex,
+  getRangeForSelection,
 } from './TargetComparisonAPI';
 
 import RNFS from 'react-native-fs';
 import Share from 'react-native-share';
 import XLSX from 'xlsx-js-style';
+import SummaryTabBar from '../../design/components/SummaryTabBar';
+import {
+  cached,
+  fetchedAt,
+  peekAsync,
+  updatedLabel,
+} from '../../api/queryCache';
 
 /* ═══════════════════════════════════════════════════════════════════════════
    EXCEL EXPORT — styled workbook (xlsx-js-style)
@@ -679,7 +688,10 @@ const mapPool = async (items, limit, fn, onTick) => {
   return out;
 };
 
-const TargetComparisonScreen = ({ navigation }) => {
+const TargetComparisonScreen = ({ navigation, route }) => {
+  // Opened from Branch Summary's "Target Analysis" tab: show the same two-tab
+  // bar (SummaryTabBar). Opened from anywhere else, the screen is unchanged.
+  const fromTabs = !!route?.params?.fromTabs;
   const [mode, setMode] = useState('monthly');
   const [period, setPeriod] = useState(currentMonthPeriodIndex());
   const [showFilter, setShowFilter] = useState(false);
@@ -707,22 +719,29 @@ const TargetComparisonScreen = ({ navigation }) => {
   const [exportMsg, setExportMsg] = useState('');
   const [meta, setMeta] = useState(null);
 
-  const load = useCallback(() => {
-    let alive = true;
-    if (!locations.length) {
-      setLoading(false);
-      setError('No branch is available for your account.');
-      return;
-    }
-    setLoading(true);
-    setError(null);
+  // ⚠️ CACHED ON THE PHONE — see src/api/queryCache.js. Opening this screen,
+  // even after the app was closed, shows the last stored figures for the
+  // period with no server call. ONLY pull-to-refresh (force) reads again. A
+  // period never read before has nothing stored, so it is fetched once.
+  const [refreshing, setRefreshing] = useState(false);
+  const [updatedAt, setUpdatedAt] = useState(null);
 
-    Promise.all([
-      fetchComparisonDetail('all', mode, period, locations, role, subRole),
-      fetchComparisonBranches(mode, period, locations, role, subRole),
-    ])
-      .then(([detail, list]) => {
-        if (!alive) return;
+  const load = useCallback(
+    ({ force = false } = {}) => {
+      let alive = true;
+      if (!locations.length) {
+        setLoading(false);
+        setError('No branch is available for your account.');
+        return;
+      }
+      // The period's real start date is in the key: `period` is an index from
+      // the start of the CURRENT financial year, so the same index means a
+      // different month next year.
+      const range = getRangeForSelection(mode, period);
+      const key = `targetComparison|${mode}|${range.from}|${locations.join(
+        ',',
+      )}|${role}|${subRole}`;
+      const apply = ([detail, list]) => {
         setConsolidated(detail.params);
         setBranchTotals(list.branches || []);
         setShowOptimistic(!!list.meta?.showOptimistic);
@@ -730,14 +749,51 @@ const TargetComparisonScreen = ({ navigation }) => {
           list.meta?.primaryLabel || detail.meta?.primaryLabel || 'Target',
         );
         setMeta(list.meta || detail.meta || null);
-      })
-      .catch(e => alive && setError(e.message || 'Failed to load comparison'))
-      .finally(() => alive && setLoading(false));
+        setUpdatedAt(fetchedAt(key));
+      };
 
-    return () => {
-      alive = false;
-    };
-  }, [locations, mode, period, role, subRole]);
+      setError(null);
+      (async () => {
+        // Already have it: paint at once — no request.
+        const hit = force ? undefined : await peekAsync(key);
+        if (!alive) return;
+        if (hit !== undefined) {
+          apply(hit);
+          setLoading(false);
+          setRefreshing(false);
+          return;
+        }
+        if (!force) setLoading(true);
+        return cached(
+          key,
+          () =>
+            Promise.all([
+              fetchComparisonDetail(
+                'all',
+                mode,
+                period,
+                locations,
+                role,
+                subRole,
+              ),
+              fetchComparisonBranches(mode, period, locations, role, subRole),
+            ]),
+          { force },
+        ).then(res => alive && apply(res));
+      })()
+        .catch(e => alive && setError(e.message || 'Failed to load comparison'))
+        .finally(() => {
+          if (!alive) return;
+          setLoading(false);
+          setRefreshing(false);
+        });
+
+      return () => {
+        alive = false;
+      };
+    },
+    [locations, mode, period, role, subRole],
+  );
 
   useEffect(() => load(), [load]);
 
@@ -915,6 +971,12 @@ const TargetComparisonScreen = ({ navigation }) => {
             {MODE_LABEL[mode]} · {periodLabel}
           </Text>
         </TouchableOpacity>
+        {/* How old the figures are — they may come from the cache. */}
+        {!!updatedAt && !loading && (
+          <Text style={styles.updatedNote}>
+            {updatedLabel(updatedAt)} · pull down to refresh
+          </Text>
+        )}
       </View>
 
       {loading ? (
@@ -926,7 +988,7 @@ const TargetComparisonScreen = ({ navigation }) => {
         <View style={styles.center}>
           <Icon name="alert-circle-outline" size={42} color={RED} />
           <Text style={styles.errText}>{error}</Text>
-          <TouchableOpacity style={styles.retryBtn} onPress={load}>
+          <TouchableOpacity style={styles.retryBtn} onPress={() => load()}>
             <Icon
               name="refresh"
               size={16}
@@ -937,7 +999,20 @@ const TargetComparisonScreen = ({ navigation }) => {
           </TouchableOpacity>
         </View>
       ) : (
-        <ScrollView contentContainerStyle={{ padding: 14, paddingBottom: 40 }}>
+        <ScrollView
+          contentContainerStyle={{ padding: 14, paddingBottom: 40 }}
+          refreshControl={
+            <RefreshControl
+              refreshing={refreshing}
+              onRefresh={() => {
+                setRefreshing(true);
+                load({ force: true });
+              }}
+              tintColor={BRAND}
+              colors={[BRAND]}
+            />
+          }
+        >
           <Text style={styles.viewLabel}>
             All Branches · {MODE_LABEL[mode]}
           </Text>
@@ -1132,6 +1207,8 @@ const TargetComparisonScreen = ({ navigation }) => {
           setShowFilter(false);
         }}
       />
+
+      {fromTabs && <SummaryTabBar navigation={navigation} active="target" />}
     </SafeAreaView>
   );
 };
@@ -1163,6 +1240,7 @@ const styles = StyleSheet.create({
   },
   headerSub: { color: '#cdddf2', fontSize: 12, textAlign: 'center' },
   banner: { paddingHorizontal: 14, paddingTop: 12 },
+  updatedNote: { fontSize: 11, color: '#6b7280', marginTop: 6, marginLeft: 4 },
   bannerChip: {
     flexDirection: 'row',
     alignItems: 'center',

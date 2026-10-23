@@ -544,9 +544,16 @@ function App(): React.JSX.Element {
                   require('./src/admin/targetComparison/TargetComparisonScreen')
                     .default
                 }
-                options={{
+                // From Branch Summary's bottom tabs it should switch like a
+                // tab, not slide in like a new page (see SummaryTabBar.js).
+                options={({
+                  route,
+                }: {
+                  route: { params?: { fromTabs?: boolean } };
+                }) => ({
                   headerShown: false,
-                }}
+                  animation: route.params?.fromTabs ? 'none' : 'default',
+                })}
               />
               <Stack.Screen
                 name="BranchTargetDetail"

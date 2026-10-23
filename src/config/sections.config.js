@@ -192,7 +192,7 @@ export const SECTIONS = [
     ],
     pages: [
       {
-        name: 'Evital Pharmacy',
+        name: 'Pharmacy Collection',
         desc: 'Live sales from the Evital counter',
         icon: 'mortar',
         route: 'EvitalPharmacyData',
