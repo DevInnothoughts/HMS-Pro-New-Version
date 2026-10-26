@@ -248,7 +248,9 @@ export const SECTIONS = [
         // mode, scoped to this login's branches. The old LeadStatsReport
         // route is still registered in App.tsx, unused, for rollback.
         route: 'leadsStats',
-        gate: FINANCE,
+        // Finance + Cluster Heads (Oct 2026). The screen scopes itself to the
+        // login's branches, so a Cluster Head sees only their own cluster.
+        gate: [...FINANCE, 'Cluster Head'],
       },
     ],
   },

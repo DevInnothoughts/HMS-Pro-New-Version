@@ -15,7 +15,6 @@ import {
   View,
 } from 'react-native';
 import { setLocation, setLocationArray } from '../store/locationSlice';
-import firestore from '@react-native-firebase/firestore';
 import {
   ActivityIndicator,
   Button,
@@ -26,10 +25,8 @@ import {
   Text,
 } from 'react-native-paper';
 import { Card } from 'react-native-paper';
-import AsyncStorage from '@react-native-async-storage/async-storage';
-import { clearAll as clearQueryCache } from '../api/queryCache';
 import { useDispatch, useSelector } from 'react-redux';
-import { clearLocation } from '../store/locationSlice';
+import { logout } from '../common/logout';
 import { DonutChart } from 'react-native-circular-chart';
 import { Picker } from '@react-native-picker/picker';
 import BottomTab from './BottomTab';
@@ -340,36 +337,15 @@ const AdminHome = ({ navigation }) => {
     });
   };
 
-  const logoutHandler = async () => {
-    try {
-      setLoading(true);
-      const mobile = await AsyncStorage.getItem('mobile');
-      if (!mobile) {
-        throw new Error('No mobile number found in AsyncStorage');
-      }
-
-      const userDoc = await firestore().collection('users').doc(mobile).get();
-      const userData = userDoc.data();
-
-      if (userData) {
-        userData.isActive = false;
-        userData.deviceId = '';
-        await firestore().collection('users').doc(mobile).update(userData);
-        dispatch(clearLocation());
-      } else {
-        throw new Error('User data not found in Firestore');
-      }
-      await AsyncStorage.setItem('deviceId', '');
-      await AsyncStorage.setItem('mobile', '');
-      // Stored Branch Summary / Target Analysis figures — see api/queryCache.
-      await clearQueryCache();
-      navigation.navigate('EnterMobile');
-    } catch (error) {
-      console.error('Logout Error:', error);
-    } finally {
-      setLoading(false);
-    }
-  };
+  // Shared logout (src/common/logout.js): clears the Firestore status with a
+  // retry and a time limit, says so if it can't, and always signs out locally.
+  const logoutHandler = () =>
+    logout({
+      dispatch,
+      navigation,
+      onStart: () => setLoading(true),
+      onFinally: () => setLoading(false),
+    });
 
   const hideModal1 = () => {
     setVisible1(false);
@@ -1345,6 +1321,14 @@ const AdminHome = ({ navigation }) => {
                       color: '#7A1B78',
                       icon: 'summarize',
                     },
+                  ]
+                : []),
+              // Lead Stats Report — Finance + Cluster Heads (same gate as
+              // sections.config.js). Scoped to the login's branches.
+              ...(role === 'SuperAdmin' ||
+              subRole === 'CFO' ||
+              subRole === 'Cluster Head'
+                ? [
                     {
                       label: 'Lead Stats Report',
                       // Ad Agency lead screen, internal mode — see sections.config.js
