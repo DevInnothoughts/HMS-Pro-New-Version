@@ -1347,7 +1347,8 @@ const AdminHome = ({ navigation }) => {
                     },
                     {
                       label: 'Lead Stats Report',
-                      route: 'LeadStatsReport',
+                      // Ad Agency lead screen, internal mode — see sections.config.js
+                      route: 'leadsStats',
                       params: { from: from, to: to },
                       color: '#185FA5',
                       icon: 'leaderboard',

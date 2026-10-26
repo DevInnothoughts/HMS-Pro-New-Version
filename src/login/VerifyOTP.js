@@ -172,7 +172,9 @@ const VerifyOTP = ({ navigation }) => {
                 dispatch(setLocation(data1.location[0]));
                 dispatch(setSubRole(data1.subRole ? data1.subRole : ''));
                 setLoading(false);
-                goHome('leadsStats', {
+                // Google-only, no-IVR, campaign-wise agency screen.
+                // ('leadsStats' is now the internal Lead Stats Report.)
+                goHome('agencyLeads', {
                   location: data1.location[0],
                 });
               } else {

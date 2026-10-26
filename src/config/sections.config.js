@@ -242,9 +242,12 @@ export const SECTIONS = [
       },
       {
         name: 'Lead Stats Report',
-        desc: 'Source, stage and owner breakdown',
+        desc: 'Citywise unique leads, duplicates, MoM / YoY trend',
         icon: 'chart',
-        route: 'LeadStatsReport',
+        // The Ad Agency lead screen (src/adAgency/AdAgencyHome.js) in internal
+        // mode, scoped to this login's branches. The old LeadStatsReport
+        // route is still registered in App.tsx, unused, for rollback.
+        route: 'leadsStats',
         gate: FINANCE,
       },
     ],

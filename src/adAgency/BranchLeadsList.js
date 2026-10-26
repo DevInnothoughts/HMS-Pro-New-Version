@@ -1,0 +1,716 @@
+/* eslint-disable react-native/no-inline-styles */
+/* eslint-disable prettier/prettier */
+// src/adAgency/BranchLeadsList.js
+// ─────────────────────────────────────────────────────────────────────────────
+// One branch's leads for the Ad Agency — every source, filterable.
+//
+// PRIVACY: mobile numbers reach this screen ALREADY MASKED ("98XXXXXX45") by
+// GET /leadsStats/v2/leads. Nothing here unmasks or needs to; there is no
+// call / WhatsApp action on purpose. Notes, emails and chat messages are not
+// sent by the server either.
+//
+// Data is fetched once per branch + range and STORED ON THE PHONE
+// (src/leadStats/leadStatsApi.js) — the server is asked again only on
+// pull-to-refresh. Source tabs, stage filter and search work on that list
+// locally, so switching tabs is instant.
+// ─────────────────────────────────────────────────────────────────────────────
+
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import {
+  ActivityIndicator,
+  FlatList,
+  RefreshControl,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  View,
+} from 'react-native';
+import Icon from 'react-native-vector-icons/MaterialIcons';
+
+import {
+  MetricGrid,
+  SectionHead,
+  Segmented,
+} from '../design/components/primitives';
+import { updatedLabel } from '../api/queryCache';
+import { F, R, T, num, pct, tint } from '../design/tokens';
+import { fetchAllBranchLeads } from '../leadStats/leadStatsApi';
+import { ALL, CHANNELS, channelOf, stageOf, viewOf } from './channels';
+import LeadTrend from './LeadTrend';
+
+const STAGES = [
+  { key: 'all', label: 'All' },
+  { key: 'booked', label: 'Booked' },
+  { key: 'visited', label: 'Visited' },
+  { key: 'ipd', label: 'IPD' },
+  { key: 'open', label: 'Not booked' },
+];
+
+const matchesStage = (l, stage) => {
+  if (stage === 'booked') return l.booked;
+  if (stage === 'visited') return l.visited;
+  if (stage === 'ipd') return l.ipd;
+  if (stage === 'open') return !l.booked;
+  return true;
+};
+
+// "2026-10-21 14:05" → "21 Oct, 14:05"
+const MONTHS = [
+  'Jan',
+  'Feb',
+  'Mar',
+  'Apr',
+  'May',
+  'Jun',
+  'Jul',
+  'Aug',
+  'Sep',
+  'Oct',
+  'Nov',
+  'Dec',
+];
+const prettyDate = v => {
+  const [d, t] = String(v || '').split(' ');
+  const [, m, day] = (d || '').split('-').map(Number);
+  if (!m || !day) return v || '';
+  return `${day} ${MONTHS[m - 1]}${t ? `, ${t}` : ''}`;
+};
+
+// One unique person = their LATEST lead (older ones are eliminated as
+// duplicates). `lead` is already the view for the current tab (viewOf);
+// sources[0] is the kept lead's source, the rest are where older leads came from.
+const LeadRow = ({ lead }) => {
+  const srcs = lead.sources || [];
+  const ch = channelOf(lead.source || srcs[0]);
+  const stage = stageOf(lead);
+  const range =
+    lead.entries > 1 && lead.firstDate && lead.firstDate !== lead.date
+      ? `${prettyDate(lead.firstDate)} → ${prettyDate(lead.date)}`
+      : prettyDate(lead.date);
+  const meta = [range, lead.treatment, lead.detail]
+    .filter(Boolean)
+    .join('  ·  ');
+
+  return (
+    <View style={s.row}>
+      <View style={[s.rowIco, { backgroundColor: tint(ch.hue) }]}>
+        <Icon name={ch.icon} size={17} color={ch.hue} />
+      </View>
+
+      <View style={{ flex: 1, minWidth: 0 }}>
+        <View style={s.rowTop}>
+          <Text style={s.rowName} numberOfLines={1}>
+            {lead.name || 'Unnamed lead'}
+          </Text>
+          {lead.entries > 1 && (
+            <View
+              style={s.dupBadge}
+              accessibilityLabel={`${lead.entries} entries, ${
+                lead.entries - 1
+              } duplicate`}
+            >
+              <Icon name="content-copy" size={10} color={T.crit} />
+              <Text style={s.dupText}>×{lead.entries}</Text>
+            </View>
+          )}
+          <View style={[s.pill, { backgroundColor: tint(stage.color) }]}>
+            <Text
+              style={[s.pillText, { color: stage.color }]}
+              numberOfLines={1}
+            >
+              {stage.label}
+            </Text>
+          </View>
+        </View>
+
+        <View style={s.phoneRow}>
+          <Icon name="lock" size={11} color={T.muted2} />
+          <Text style={s.phone}>{lead.phone || '—'}</Text>
+          <Text style={[s.srcTag, { color: ch.hue }]}>{ch.short}</Text>
+          {srcs.length > 1 && (
+            <Text style={s.olderTag} numberOfLines={1}>
+              older:{' '}
+              {srcs
+                .slice(1)
+                .map(k => channelOf(k).short)
+                .join(', ')}
+            </Text>
+          )}
+        </View>
+
+        {!!meta && (
+          <Text style={s.meta} numberOfLines={2}>
+            {meta}
+          </Text>
+        )}
+      </View>
+    </View>
+  );
+};
+
+export default function BranchLeadsList({
+  location,
+  from,
+  to,
+  scopeKey,
+  band,
+  onLoaded,
+}) {
+  const [data, setData] = useState(null);
+  const [updatedAt, setUpdatedAt] = useState(null);
+  // A failed pull-to-refresh keeps the stored list on screen and says so.
+  const [refreshError, setRefreshError] = useState(null);
+  const hasData = useRef(false);
+  const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
+  const [error, setError] = useState(null);
+  const [source, setSource] = useState('combined');
+  const [stage, setStage] = useState('all');
+  const [query, setQuery] = useState('');
+  // 'list' = the lead list; 'trend' = MoM / YoY for the selected source.
+  const [view, setView] = useState('list');
+  const [trendToken, setTrendToken] = useState(0);
+
+  const load = useCallback(
+    async (isRefresh = false) => {
+      isRefresh ? setRefreshing(true) : setLoading(true);
+      setError(null);
+      setRefreshError(null);
+      if (!isRefresh) onLoaded?.(null);
+      try {
+        // STORED ON THE PHONE (leadStatsApi): the server only on pull-to-refresh.
+        const { data: d, updatedAt: at } = await fetchAllBranchLeads({
+          location,
+          from,
+          to,
+          scopeKey,
+          force: isRefresh,
+        });
+        setData(d);
+        setUpdatedAt(at);
+        hasData.current = true;
+        onLoaded?.(d);
+      } catch (e) {
+        if (isRefresh && hasData.current)
+          setRefreshError(e?.message || 'Refresh failed');
+        else setError(e?.message || 'Failed to load leads');
+      } finally {
+        setLoading(false);
+        setRefreshing(false);
+      }
+    },
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [location, from, to, scopeKey],
+  );
+
+  useEffect(() => {
+    load();
+  }, [load]);
+
+  const all = data?.leads || [];
+
+  // Source first — the metric cards describe the chosen source, before the
+  // stage filter and search narrow the list. Every row is ONE unique person;
+  // under a source tab it carries that source's own de-duplicated stage.
+  const bySource = useMemo(
+    () => all.map(l => viewOf(l, source)).filter(Boolean),
+    [all, source],
+  );
+
+  // Source + search, before the stage filter. The stage chip counts are taken
+  // from this list, so each chip's number is exactly what tapping it shows.
+  const searched = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    if (!q) return bySource;
+    return bySource.filter(
+      l =>
+        String(l.name || '')
+          .toLowerCase()
+          .includes(q) ||
+        String(l.treatment || '')
+          .toLowerCase()
+          .includes(q),
+    );
+  }, [bySource, query]);
+
+  const stageCounts = useMemo(() => {
+    const c = {};
+    STAGES.forEach(o => {
+      c[o.key] = searched.filter(l => matchesStage(l, o.key)).length;
+    });
+    return c;
+  }, [searched]);
+
+  const shown = useMemo(
+    () => searched.filter(l => matchesStage(l, stage)),
+    [searched, stage],
+  );
+
+  // Unique vs duplicate for the current tab. Booked / Visited / IPD / Not
+  // booked are on the stage chips, already counted per unique lead.
+  const t = useMemo(() => {
+    const entries = bySource.reduce((a, l) => a + (l.entries || 1), 0);
+    return {
+      unique: bySource.length,
+      entries,
+      duplicates: entries - bySource.length,
+      multiSource: bySource.filter(l => (l.sources || []).length > 1).length,
+    };
+  }, [bySource]);
+
+  const metrics = [
+    {
+      key: 'u',
+      label: 'Unique leads',
+      value: num(t.unique),
+      note: `from ${num(t.entries)} entries`,
+    },
+    {
+      key: 'd',
+      label: 'Duplicates',
+      value: num(t.duplicates),
+      note:
+        source === 'combined' && t.multiSource > 0
+          ? `${num(t.multiSource)} via 2+ sources`
+          : `${pct(t.duplicates, t.entries)}% of entries removed`,
+      dir: t.duplicates > 0 ? 'down' : undefined,
+    },
+  ];
+
+  // Tab badges: unique leads per source, with that source's duplicates.
+  const st = data?.stats || {};
+  const tabs = [
+    {
+      ...ALL,
+      count: st.combined?.total ?? all.length,
+      dup: st.combined?.duplicates ?? 0,
+    },
+    ...CHANNELS.map(c => ({
+      ...c,
+      count: st[c.key]?.total ?? 0,
+      dup: st[c.key]?.duplicates ?? 0,
+    })),
+  ];
+  const failed = (data?.errors || []).map(k => channelOf(k).label);
+
+  const Header = (
+    <>
+      {band}
+      {loading ? (
+        <View style={s.center}>
+          <ActivityIndicator size="large" color={T.brand} />
+          <Text style={s.muted}>Loading leads for {location}…</Text>
+        </View>
+      ) : error ? (
+        <View style={s.errorCard}>
+          <Icon name="error-outline" size={26} color={T.crit} />
+          <Text style={s.errorText}>{error}</Text>
+          <TouchableOpacity style={s.retry} onPress={() => load()}>
+            <Text style={s.retryText}>Retry</Text>
+          </TouchableOpacity>
+        </View>
+      ) : (
+        <>
+          <MetricGrid items={metrics} />
+          <View style={s.page}>
+            {!!updatedAt && (
+              <Text style={s.updated}>
+                {updatedLabel(updatedAt)} · pull down to refresh
+              </Text>
+            )}
+            {!!refreshError && (
+              <Text style={s.refreshErr}>
+                Refresh failed — showing the stored list. {refreshError}
+              </Text>
+            )}
+            <ScrollView
+              horizontal
+              showsHorizontalScrollIndicator={false}
+              contentContainerStyle={s.tabs}
+            >
+              {tabs.map(tb => {
+                const on = source === tb.key;
+                return (
+                  <TouchableOpacity
+                    key={tb.key}
+                    onPress={() => setSource(tb.key)}
+                    style={[
+                      s.tab,
+                      on && { backgroundColor: tb.hue, borderColor: tb.hue },
+                    ]}
+                    accessibilityRole="button"
+                    accessibilityState={{ selected: on }}
+                    accessibilityLabel={`${tb.label}, ${tb.count} unique leads, ${tb.dup} duplicates`}
+                  >
+                    <Text style={[s.tabText, on && { color: T.white }]}>
+                      {tb.short}
+                    </Text>
+                    <Text style={[s.tabCount, on && { color: T.white }]}>
+                      {num(tb.count)}
+                    </Text>
+                    {tb.dup > 0 && (
+                      <Text
+                        style={[
+                          s.tabDup,
+                          on && { color: 'rgba(255,255,255,0.8)' },
+                        ]}
+                      >
+                        +{num(tb.dup)} dup
+                      </Text>
+                    )}
+                  </TouchableOpacity>
+                );
+              })}
+            </ScrollView>
+
+            {/* The source tab above drives both views: the list, and the
+                trend for that source (or All). */}
+            <Segmented
+              options={[
+                { value: 'list', label: 'Lead list' },
+                { value: 'trend', label: 'Trend · MoM / YoY' },
+              ]}
+              value={view}
+              onChange={setView}
+            />
+
+            {view === 'list' && (
+              <>
+                <View style={s.stageRow}>
+                  {STAGES.map(o => {
+                    const on = stage === o.key;
+                    return (
+                      <TouchableOpacity
+                        key={o.key}
+                        onPress={() => setStage(o.key)}
+                        style={[s.chip, on && s.chipOn]}
+                        accessibilityRole="button"
+                        accessibilityState={{ selected: on }}
+                        accessibilityLabel={`${o.label}, ${
+                          stageCounts[o.key] || 0
+                        } leads`}
+                      >
+                        <Text style={[s.chipText, on && s.chipTextOn]}>
+                          {o.label}
+                        </Text>
+                        <View style={[s.chipBadge, on && s.chipBadgeOn]}>
+                          <Text style={[s.chipCount, on && s.chipCountOn]}>
+                            {num(stageCounts[o.key] || 0)}
+                          </Text>
+                        </View>
+                      </TouchableOpacity>
+                    );
+                  })}
+                </View>
+
+                <View style={s.search}>
+                  <Icon name="search" size={16} color={T.muted2} />
+                  <TextInput
+                    value={query}
+                    onChangeText={setQuery}
+                    placeholder="Search name or treatment"
+                    placeholderTextColor={T.muted2}
+                    style={s.searchInput}
+                    autoCorrect={false}
+                  />
+                  {!!query && (
+                    <TouchableOpacity
+                      onPress={() => setQuery('')}
+                      hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                    >
+                      <Icon name="close" size={16} color={T.muted2} />
+                    </TouchableOpacity>
+                  )}
+                </View>
+
+                {failed.length > 0 && (
+                  <Text style={s.warn}>
+                    {failed.join(', ')} could not be loaded — pull down to
+                    retry.
+                  </Text>
+                )}
+
+                <SectionHead
+                  label={`${num(shown.length)} unique lead${
+                    shown.length === 1 ? '' : 's'
+                  } · ×N = repeat entries · mobiles hidden`}
+                />
+              </>
+            )}
+          </View>
+
+          {view === 'trend' && (
+            <LeadTrend
+              location={location}
+              source={source}
+              refreshToken={trendToken}
+            />
+          )}
+        </>
+      )}
+    </>
+  );
+
+  return (
+    <FlatList
+      style={{ flex: 1, backgroundColor: T.canvas }}
+      data={loading || error || view === 'trend' ? [] : shown}
+      keyExtractor={item => item.id}
+      ListHeaderComponent={Header}
+      contentContainerStyle={{ paddingBottom: 40 }}
+      keyboardShouldPersistTaps="handled"
+      initialNumToRender={15}
+      windowSize={9}
+      refreshControl={
+        <RefreshControl
+          refreshing={refreshing}
+          onRefresh={() => {
+            load(true);
+            // Pull-to-refresh also re-reads the trend (it is cached per day).
+            if (view === 'trend') setTrendToken(t => t + 1);
+          }}
+          tintColor={T.brand}
+          colors={[T.brand]}
+        />
+      }
+      renderItem={({ item, index }) => (
+        <View
+          style={[
+            s.listCard,
+            index === 0 && s.listFirst,
+            index === shown.length - 1 && s.listLast,
+          ]}
+        >
+          <LeadRow lead={item} />
+        </View>
+      )}
+      ListEmptyComponent={
+        !loading && !error && view === 'list' ? (
+          <View style={s.empty}>
+            <Icon name="inbox" size={28} color={T.chevron} />
+            <Text style={s.muted}>
+              {all.length === 0
+                ? 'No leads for this branch in this period.'
+                : 'No leads match these filters.'}
+            </Text>
+          </View>
+        ) : null
+      }
+    />
+  );
+}
+
+const s = StyleSheet.create({
+  updated: {
+    fontFamily: F.mono,
+    fontSize: 10,
+    color: T.muted2,
+    marginTop: 10,
+    marginHorizontal: 2,
+  },
+  refreshErr: {
+    fontFamily: F.regular,
+    fontSize: 11,
+    color: T.crit,
+    marginTop: 4,
+    marginHorizontal: 2,
+  },
+  page: { paddingHorizontal: 16 },
+  center: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 60,
+  },
+  muted: {
+    fontFamily: F.regular,
+    fontSize: 12,
+    color: T.muted,
+    marginTop: 10,
+    textAlign: 'center',
+  },
+  empty: { alignItems: 'center', paddingVertical: 30 },
+
+  errorCard: {
+    backgroundColor: T.card,
+    borderWidth: 1,
+    borderColor: T.line,
+    borderRadius: R.card,
+    padding: 16,
+    marginHorizontal: 16,
+    marginTop: -30,
+    alignItems: 'center',
+    gap: 10,
+  },
+  errorText: {
+    fontFamily: F.regular,
+    fontSize: 13,
+    color: T.text,
+    textAlign: 'center',
+  },
+  retry: {
+    backgroundColor: T.brand,
+    borderRadius: R.sm,
+    paddingHorizontal: 18,
+    paddingVertical: 8,
+  },
+  retryText: { fontFamily: F.medium, fontSize: 13, color: T.white },
+
+  tabs: { gap: 6, paddingTop: 18, paddingBottom: 10 },
+  tab: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    borderWidth: 1,
+    borderColor: T.line,
+    backgroundColor: T.card,
+    borderRadius: R.sm,
+    paddingHorizontal: 11,
+    paddingVertical: 7,
+  },
+  tabText: { fontFamily: F.medium, fontSize: 12, color: T.text },
+  tabCount: { fontFamily: F.mono, fontSize: 11, color: T.muted },
+  tabDup: { fontFamily: F.mono, fontSize: 9.5, color: T.crit },
+  olderTag: {
+    fontFamily: F.mono,
+    fontSize: 9.5,
+    color: T.muted2,
+    marginLeft: 6,
+    flexShrink: 1,
+    textDecorationLine: 'line-through',
+  },
+
+  dupBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 3,
+    backgroundColor: tint(T.crit),
+    borderRadius: 6,
+    paddingHorizontal: 5,
+    paddingVertical: 2,
+  },
+  dupText: { fontFamily: F.mono, fontSize: 10, color: T.crit },
+
+  stageRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 6,
+    marginBottom: 10,
+  },
+  chip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    borderRadius: R.pill,
+    borderWidth: 1,
+    borderColor: T.line,
+    backgroundColor: T.card,
+    paddingLeft: 11,
+    paddingRight: 5,
+    paddingVertical: 4,
+  },
+  chipOn: { backgroundColor: T.text, borderColor: T.text },
+  chipText: { fontFamily: F.medium, fontSize: 11, color: T.muted },
+  chipTextOn: { color: T.white },
+  chipBadge: {
+    minWidth: 22,
+    borderRadius: R.pill,
+    backgroundColor: T.lineSoft,
+    paddingHorizontal: 6,
+    paddingVertical: 1,
+    alignItems: 'center',
+  },
+  chipBadgeOn: { backgroundColor: 'rgba(255,255,255,0.2)' },
+  chipCount: { fontFamily: F.mono, fontSize: 10.5, color: T.text },
+  chipCountOn: { color: T.white },
+
+  search: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    backgroundColor: T.card,
+    borderWidth: 1,
+    borderColor: T.line,
+    borderRadius: R.md,
+    paddingHorizontal: 12,
+    marginBottom: 14,
+  },
+  searchInput: {
+    flex: 1,
+    fontFamily: F.regular,
+    fontSize: 13,
+    color: T.text,
+    paddingVertical: 9,
+  },
+  warn: {
+    fontFamily: F.regular,
+    fontSize: 11,
+    color: T.crit,
+    marginBottom: 10,
+  },
+
+  // The rows sit in one bordered card: first and last items carry the corners.
+  listCard: {
+    marginHorizontal: 16,
+    backgroundColor: T.card,
+    borderLeftWidth: 1,
+    borderRightWidth: 1,
+    borderColor: T.line,
+  },
+  listFirst: {
+    borderTopWidth: 1,
+    borderTopLeftRadius: R.card,
+    borderTopRightRadius: R.card,
+  },
+  listLast: {
+    borderBottomWidth: 1,
+    borderBottomLeftRadius: R.card,
+    borderBottomRightRadius: R.card,
+  },
+
+  row: {
+    flexDirection: 'row',
+    gap: 11,
+    paddingHorizontal: 13,
+    paddingVertical: 11,
+    borderBottomWidth: 1,
+    borderColor: T.lineSoft,
+  },
+  rowIco: {
+    width: 34,
+    height: 34,
+    borderRadius: 10,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginTop: 1,
+  },
+  rowTop: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  rowName: { flex: 1, fontFamily: F.semibold, fontSize: 13.5, color: T.text },
+  pill: {
+    borderRadius: 6,
+    paddingHorizontal: 7,
+    paddingVertical: 2,
+    maxWidth: 110,
+  },
+  pillText: { fontFamily: F.medium, fontSize: 10.5 },
+  phoneRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    marginTop: 4,
+  },
+  phone: {
+    fontFamily: F.mono,
+    fontSize: 12,
+    color: T.muted,
+    letterSpacing: 0.6,
+  },
+  srcTag: {
+    fontFamily: F.mono,
+    fontSize: 9.5,
+    letterSpacing: 0.8,
+    marginLeft: 8,
+  },
+  meta: { fontFamily: F.regular, fontSize: 11, color: T.muted2, marginTop: 4 },
+});

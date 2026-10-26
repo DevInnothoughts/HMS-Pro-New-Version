@@ -92,6 +92,7 @@ import Icon from 'react-native-vector-icons/MaterialIcons';
 import { useDispatch, useSelector } from 'react-redux';
 
 import AppDrawer from '../common/AppDrawer';
+import { CITY_OF } from '../common/cityMap';
 import { get } from '../api/client';
 import {
   cached,
@@ -122,45 +123,11 @@ const TIMEOUT_MS = 180000;
 let monthDefaulted = false;
 
 /**
- * Branch → city. Only multi-branch cities are listed; anything absent becomes
- * its own city, which covers Belgavi, Kalaburagi, Latur, Ludhiana, Lucknow,
- * Mysore, Nashik, Mohali, Aurangabad, Raipur — and any branch opened after
- * this map was written.
+ * Branch → city. Moved to src/common/cityMap.js (unchanged) so the Ad Agency
+ * lead screen groups branches into exactly the same cities as this screen.
+ * Anything absent from the map becomes its own city — see that file.
+ * (imported above as CITY_OF)
  */
-const CITY_OF = {};
-const CITIES = {
-  Pune: [
-    'Baner',
-    'Chakan',
-    'Chinchwad',
-    'Dighi',
-    'Hinjewadi',
-    'Salunke Vihar',
-    'Undri',
-    'Katraj',
-    'Hadapsar',
-    'DP Road',
-  ],
-  Mumbai: ['Andheri', 'Navi Mumbai', 'Thane', 'Vashi', 'Kalyan'],
-  Bangalore: [
-    'HSR',
-    'Sahakar Nagar',
-    'Indiranagar',
-    'JP Nagar',
-    'Rajaji Nagar',
-    'Sarjapura',
-    'Whitefield',
-    'Electronic City',
-    'RR Nagar',
-  ],
-  Hyderabad: ['Hyderabad', 'Secunderabad'],
-  Ahmedabad: ['Ahmedabad', 'Bopal'],
-  Surat: ['Surat', 'Adajan'],
-  Gurgaon: ['Gurgaon Sector 14', 'Gurgaon Sector 49'],
-};
-Object.entries(CITIES).forEach(([city, branches]) => {
-  branches.forEach(b => (CITY_OF[b] = city));
-});
 
 // No red — this is a comparison view, not an alert. Red is reserved for money
 // owed and failed reads.

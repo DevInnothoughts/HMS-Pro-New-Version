@@ -517,9 +517,19 @@ function App(): React.JSX.Element {
                   headerShown: false,
                 }}
               /> */}
+              {/* Internal Lead Stats Report (Leads & Calls) — the city-wise
+                  lead screen, scoped to the login's branches. */}
               <Stack.Screen
                 name="leadsStats"
                 component={require('./src/adAgency/AdAgencyHome').default}
+                options={{
+                  headerShown: false,
+                }}
+              />
+              {/* Ad Agency login: Google leads only, no IVR, campaign-wise. */}
+              <Stack.Screen
+                name="agencyLeads"
+                component={require('./src/agency/AgencyHome').default}
                 options={{
                   headerShown: false,
                 }}

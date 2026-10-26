@@ -1,1094 +1,635 @@
-import { useFocusEffect, useRoute } from '@react-navigation/native';
+/* eslint-disable prettier/prettier */
+// src/adAgency/AdAgencyHome.js
+// ─────────────────────────────────────────────────────────────────────────────
+// Landing screen for role === 'AdAgency' (route 'leadsStats', see EnterMobile /
+// VerifyOTP). Two views on one route:
+//
+//   dashboard   all assigned branches — LeadsStatsDashboard
+//   branch      one branch's lead list — BranchLeadsList (mobiles masked)
+//
+// Kept on one route so App.tsx and the login hand-off do not change; the
+// hardware back button closes the branch view first, then exits the app as
+// before.
+//
+// WHAT CHANGED FROM THE OLD SCREEN
+//   • Shell palette and primitives (design/tokens.js) instead of ad-hoc colours
+//   • Date range from the shared scope chip + ScopePicker (same presets as the
+//     admin home) instead of a local Picker and a second modal
+//   • Web call leads are a fourth source, included in "All"
+//   • Branch-wise lead list, phone numbers masked by the server
+//   • Branches scoped to the agency's assigned locations when it has any
+//   • Logout through common/logout.js (resets the stack, clears caches)
+// ─────────────────────────────────────────────────────────────────────────────
+
+import { useFocusEffect } from '@react-navigation/native';
 import { useCallback, useEffect, useState } from 'react';
 import {
+  ActivityIndicator,
   Alert,
   BackHandler,
-  Image,
-  KeyboardAvoidingView,
-  Platform,
-  ScrollView,
   StyleSheet,
-  TouchableOpacity,
+  Text,
   View,
 } from 'react-native';
-import { setLocation, setLocationArray } from '../store/locationSlice';
-import firestore from '@react-native-firebase/firestore';
-import {
-  ActivityIndicator,
-  Button,
-  Dialog,
-  Modal,
-  Portal,
-  Text,
-} from 'react-native-paper';
-import AsyncStorage from '@react-native-async-storage/async-storage';
-import { useDispatch, useSelector } from 'react-redux';
-import { clearLocation } from '../store/locationSlice';
-import { Picker } from '@react-native-picker/picker';
-import ModalDropdown from 'react-native-modal-dropdown';
-import DatePicker from 'react-native-date-picker';
-import { RadioButton, List } from 'react-native-paper';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { useDispatch, useSelector } from 'react-redux';
+
+import AgencyBranchLeads from '../agency/AgencyBranchLeads';
+import { rangeKey } from '../api/queryCache';
+import { cityOf } from '../common/cityMap';
+import { logout } from '../common/logout';
+import ScopePicker from '../design/components/ScopePicker';
+import { T } from '../design/tokens';
+import { scopeLabel, setPreset } from '../store/scopeSlice';
+import AgencyBand from './AgencyBand';
+import BranchLeadsList from './BranchLeadsList';
+import { CHANNELS, channelOf, stageOf, viewOf } from './channels';
+import { exportToExcel } from './ExportToExcel';
 import LeadsStatsDashboard from './LeadsStatsDashboard';
-import { exportToExcel } from './ExportToExcel'; // <-- adjust path if needed
 
-const getISTDate = date => {
-  const now = new Date(date);
-
-  // Convert to milliseconds since UTC and add IST offset
-  const istOffsetMs = 5.5 * 60 * 60 * 1000;
-  const istTime = new Date(now.getTime() + istOffsetMs);
-  //console.log(istTime);
-  // Format IST date manually in YYYY-MM-DD format
-  const year = istTime.getUTCFullYear();
-  const month = String(istTime.getUTCMonth() + 1).padStart(2, '0');
-  const day = String(istTime.getUTCDate()).padStart(2, '0');
-  //console.log(`${year}-${month}-${day}`);
-  return `${year}-${month}-${day}`;
-};
-
-const Colors = {
-  primary: '#3B6D11',
-  secondary: '#BA7517',
-  error: '#E24B4A',
-  warning: '#EF9F27',
-  background: '#F4F6F4',
-  white: '#fff',
-  border: 'rgba(0,0,0,0.07)',
-  textDark: '#18181A',
-  textMedium: '#6B6A68',
-  textLight: '#A09F9C',
-  success: '#0D6644',
-  info: '#185FA5',
-  purple: '#7A1B78',
-  lightGreen: '#9FE1CB',
-  lightBlue: '#E3EFFE',
-  lightPurple: '#FDE8FB',
-  lightGreenBg: '#D9F2EA',
-  lightGray: '#F0EEE9',
-  lightBeige: '#FAEEDA',
-  lightGrayBg: '#F7F6F2',
-};
-
-const adAgencyHome = ({ navigation }) => {
-  // eslint-disable-next-line prettier/prettier
-  const dispatch = useDispatch();
-  const location = useSelector(state => state.location.value);
-  const locationArray = useSelector(state => state.location.locationArray);
-  const [loading, setLoading] = useState(false);
-  const [from, setFrom] = useState(getISTDate(new Date()));
-  const [to, setTo] = useState(getISTDate(new Date()));
-  const [fromDate, setFromDate] = useState(new Date());
-  const [toDate, setToDate] = useState(new Date());
-  const [open, setOpen] = useState(false);
-  const [open2, setOpen2] = useState(false);
-  const [visible1, setVisible1] = useState(false);
-  const [loading1, setLoading1] = useState(false);
-  const [selectedValue, setSelectedValue] = useState('Today');
-  const [borderColor, setBorderColor] = useState('#0a0');
-  const [statsData, setStatsData] = useState(null); // <-- holds data for Excel export
-
-  const colors = ['#0a0', '#a00', '#00a', '#fa0', '#0af'];
-  const BACKEND_URL = 'https://wedoc.in/hms'; //'https://wedoc.in/hms'; //'https://admin.wedoc.in/ivr'; //
-
-  const renderStars = (rating = 0) => {
-    const rounded = Math.round(rating * 2) / 2; // supports half stars
-    const stars = [];
-
-    for (let i = 1; i <= 5; i++) {
-      if (i <= rounded) {
-        stars.push('★'); // full star
-      } else if (i - 0.5 === rounded) {
-        stars.push('☆'); // half-ish visual fallback
-      } else {
-        stars.push('☆'); // empty star
-      }
-    }
-    return stars.join(' ');
-  };
-
-  // For exiting App
-  useFocusEffect(
-    useCallback(() => {
-      const backAction = () => {
-        BackHandler.exitApp();
-        return true;
+// Counts are UNIQUE leads (one per phone); Entries / Duplicates show what
+// was removed to get there.
+const statRows = (stats, mode, google) =>
+  [...stats]
+    .sort(
+      (a, b) =>
+        cityOf(a.location).localeCompare(cityOf(b.location)) ||
+        a.location.localeCompare(b.location),
+    )
+    .map(s => {
+      const b = s[mode] || {};
+      const total = b.total || 0;
+      return {
+        City: cityOf(s.location),
+        Branch: s.location,
+        'Unique Leads': total,
+        Entries: b.entries || 0,
+        Duplicates: b.duplicates || 0,
+        Booked: b.appointment || 0,
+        ...googleCols(google, s.location, mode, total),
+        Visited: b.actualVisitCount || 0,
+        IPD: b.ipd || 0,
+        'Booked %':
+          total === 0 ? 0 : Math.round(((b.appointment || 0) / total) * 100),
       };
-      const backHandler = BackHandler.addEventListener(
-        'hardwareBackPress',
-        backAction,
-      );
-      return () => backHandler.remove();
-    }, []),
+    });
+
+/** Google Ad count + share for a branch (Lead Stats: instead of Not Booked). */
+const googleCols = (google, location, mode, total) => {
+  if (mode === 'ivr' || !google) return { 'Google Ad': '', 'Google %': '' };
+  const g =
+    (google.branches || []).find(b => b.location === location)?.[mode]?.total ||
+    0;
+  return {
+    'Google Ad': g,
+    'Google %': total ? Math.round((g / total) * 100) : 0,
+  };
+};
+
+/** Google leads (agency endpoint data) per branch, for one source. */
+const googleBranchRows = (google, all, mode) =>
+  (google?.branches || [])
+    .slice()
+    .sort(
+      (a, b) =>
+        cityOf(a.location).localeCompare(cityOf(b.location)) ||
+        a.location.localeCompare(b.location),
+    )
+    .map(b => {
+      const x = b[mode] || {};
+      const allTotal =
+        (all || []).find(a => a.location === b.location)?.[mode]?.total || 0;
+      return {
+        City: cityOf(b.location),
+        Branch: b.location,
+        'Google Leads': x.total || 0,
+        Entries: x.entries || 0,
+        Duplicates: x.duplicates || 0,
+        Booked: x.appointment || 0,
+        Visited: x.actualVisitCount || 0,
+        IPD: x.ipd || 0,
+        'Booked %': x.total
+          ? Math.round(((x.appointment || 0) / x.total) * 100)
+          : 0,
+        'All Leads': allTotal,
+        '% of All': allTotal
+          ? Math.round(((x.total || 0) / allTotal) * 100)
+          : 0,
+      };
+    });
+
+/** Condition × branch, Google leads. */
+const conditionRows = google => {
+  const out = [];
+  for (const b of google?.branches || []) {
+    for (const [k, g] of Object.entries(b.conditions || {})) {
+      const x = g.combined || {};
+      if (!x.total && !x.duplicates) continue;
+      out.push({
+        Condition: k,
+        City: cityOf(b.location),
+        Branch: b.location,
+        'Google Leads': x.total || 0,
+        Duplicates: x.duplicates || 0,
+        Booked: x.appointment || 0,
+        Visited: x.actualVisitCount || 0,
+        IPD: x.ipd || 0,
+      });
+    }
+  }
+  return out.sort(
+    (a, b) =>
+      a.Condition.localeCompare(b.Condition) ||
+      b['Google Leads'] - a['Google Leads'],
   );
+};
 
+/** Exact utm_term keywords, summed over branches. */
+const termRows = google => {
+  const by = {};
+  for (const b of google?.branches || []) {
+    for (const [term, t] of Object.entries(b.terms || {})) {
+      const x = (by[term] = by[term] || {
+        'Search Term': term,
+        Condition: t.condition,
+        'Google Leads': 0,
+        Website: 0,
+        Chatbot: 0,
+        'Web call': 0,
+      });
+      x['Google Leads'] += t.combined || 0;
+      x.Website += t.web || 0;
+      x.Chatbot += t.chatbot || 0;
+      x['Web call'] += t.webcall || 0;
+    }
+  }
+  return Object.values(by).sort(
+    (a, b) => b['Google Leads'] - a['Google Leads'],
+  );
+};
+
+// Branches rolled into cities (cityMap — same as Branch Summary). Counts are
+// summed; Booked % is recomputed from the sums, never averaged.
+const cityRows = (stats, mode, google) => {
+  const by = {};
+  const gOf = loc =>
+    mode === 'ivr' || !google
+      ? 0
+      : (google.branches || []).find(b => b.location === loc)?.[mode]?.total ||
+        0;
+  for (const s of stats) {
+    const b = s[mode] || {};
+    const c = (by[cityOf(s.location)] = by[cityOf(s.location)] || {
+      City: cityOf(s.location),
+      Branches: 0,
+      'Unique Leads': 0,
+      Entries: 0,
+      Duplicates: 0,
+      Booked: 0,
+      'Google Ad': 0,
+      Visited: 0,
+      IPD: 0,
+    });
+    c.Branches += 1;
+    c['Unique Leads'] += b.total || 0;
+    c.Entries += b.entries || 0;
+    c.Duplicates += b.duplicates || 0;
+    c.Booked += b.appointment || 0;
+    c['Google Ad'] += gOf(s.location);
+    c.Visited += b.actualVisitCount || 0;
+    c.IPD += b.ipd || 0;
+  }
+  return Object.values(by)
+    .map(c => ({
+      ...c,
+      'Google %': c['Unique Leads']
+        ? Math.round((c['Google Ad'] / c['Unique Leads']) * 100)
+        : 0,
+      'Booked %': c['Unique Leads']
+        ? Math.round((c.Booked / c['Unique Leads']) * 100)
+        : 0,
+    }))
+    .sort((a, b) => b['Unique Leads'] - a['Unique Leads']);
+};
+
+// One row per unique person = their LATEST lead, as seen from `source`
+// ('combined' = all). Older leads appear only as the Duplicates count.
+const leadRows = (leads, source) =>
+  leads
+    .map(l => viewOf(l, source))
+    .filter(Boolean)
+    .map(l => ({
+      'Lead Date (latest)': l.date,
+      'First Seen': l.firstDate || l.date,
+      Source: channelOf(l.source || (l.sources || [])[0]).label,
+      'Older Lead Sources': (l.sources || [])
+        .slice(1)
+        .map(k => channelOf(k).label)
+        .join(', '),
+      Entries: l.entries || 1,
+      'Duplicates Removed': Math.max((l.entries || 1) - 1, 0),
+      Name: l.name || '',
+      'Mobile (masked)': l.phone || '',
+      Treatment: l.treatment || '',
+      Stage: stageOf(l).label,
+      Booked: l.booked ? 'Yes' : 'No',
+      Visited: l.visited ? 'Yes' : 'No',
+      IPD: l.ipd ? 'Yes' : 'No',
+      Detail: l.detail || '',
+    }));
+
+/** Google branch page rows (agency lead shape: campaign / term / condition). */
+const googleLeadRows = (leads, source) =>
+  leads
+    .map(l => viewOf(l, source))
+    .filter(Boolean)
+    .map(l => ({
+      'Lead Date (latest)': l.date,
+      'First Seen': l.firstDate || l.date,
+      Source: channelOf(l.source || (l.sources || [])[0]).label,
+      'Search Term': l.term || '',
+      Condition: l.condition || '',
+      'Campaign ID': l.campaign === '(not tagged)' ? '' : l.campaign || '',
+      Entries: l.entries || 1,
+      'Duplicates Removed': Math.max((l.entries || 1) - 1, 0),
+      Name: l.name || '',
+      'Mobile (masked)': l.phone || '',
+      Stage: stageOf(l).label,
+      Booked: l.booked ? 'Yes' : 'No',
+      Visited: l.visited ? 'Yes' : 'No',
+      IPD: l.ipd ? 'Yes' : 'No',
+    }));
+
+// ⚠️ OPENS ON 'THIS MONTH' — ONCE PER APP LAUNCH (Branch Summary's rule): the
+// first time this screen mounts after the app opens it switches the shared
+// date scope to This Month; a range picked afterwards is kept until the app
+// closes. Module-level on purpose — it resets when the app restarts.
+let monthDefaulted = false;
+
+export default function AdAgencyHome({ navigation }) {
+  const dispatch = useDispatch();
+  const scope = useSelector(st => st.scope);
+  const locationArray = useSelector(st => st.location.locationArray);
+  const role = useSelector(st => st.location.role);
+  const branchValue = useSelector(st => st.location.value);
+  const { from, to } = scope;
+  // The stored-answer key for this range (src/leadStats/leadStatsApi.js).
+  const scopeKey = rangeKey(scope);
+
+  // Hold the first read until This Month is in place — otherwise every branch
+  // would be read once for Today and again for the month.
+  const [ready, setReady] = useState(
+    () => monthDefaulted || scope.preset === 'month',
+  );
   useEffect(() => {
-    let index = 0;
-    const interval = setInterval(() => {
-      setBorderColor(colors[index]);
-      index = (index + 1) % colors.length;
-    }, 1000);
-
-    return () => clearInterval(interval);
+    if (!monthDefaulted) {
+      monthDefaulted = true;
+      if (scope.preset !== 'month') dispatch(setPreset('month'));
+    }
+    setReady(true);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const updateValues = value => {
-    setSelectedValue(value);
-    if (value === 'Custom') {
-      setVisible1(true);
-      return;
-    }
+  // INTERNAL MODE — this screen is also the Lead Stats Report in Leads & Calls
+  // (route 'leadsStats'). The Ad Agency login now has its own screen
+  // (src/agency/AgencyHome.js, route 'agencyLeads'). Internally it is a page
+  // you came to, so back returns to the section instead of logging out /
+  // closing the app.
+  const internal = role !== 'AdAgency';
 
-    const now = new Date();
-    const istOffset = 5.5 * 60 * 60 * 1000;
-    const currentDateIST = new Date(now.getTime() + istOffset);
+  const [branch, setBranch] = useState(null);
+  // Which tab the branch was opened from: 'all' → the all-source lead list;
+  // 'google' / 'terms' → the Google lead list (agency component, reused
+  // unchanged), with the condition as a filter for 'terms'.
+  const [branchCtx, setBranchCtx] = useState({ tab: 'all', filter: null });
+  const [scopeOpen, setScopeOpen] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [stats, setStats] = useState(null); // { all, google } — for export
+  const [branchData, setBranchData] = useState(null); // branch list, for export
 
-    const formatDate = date => {
-      const year = date.getUTCFullYear();
-      const month = String(date.getUTCMonth() + 1).padStart(2, '0');
-      const day = String(date.getUTCDate()).padStart(2, '0');
-      return `${year}-${month}-${day}`;
-    };
+  // ONLY the branches this login may see. Admin / SuperAdmin / CFO logins
+  // carry them in locationArray; a single-branch login carries one branch in
+  // location.value. Nothing → nothing is loaded (the server returns every
+  // branch for a call with no branch list, so that call is never made).
+  const locations =
+    Array.isArray(locationArray) && locationArray.filter(Boolean).length
+      ? locationArray.filter(Boolean)
+      : typeof branchValue === 'string' && branchValue
+      ? [branchValue]
+      : [];
 
-    if (value === 'Today') {
-      const today = formatDate(currentDateIST);
-      setFrom(today);
-      setTo(today);
-    } else if (value === '7') {
-      const lastWeekDate = new Date(currentDateIST);
-      lastWeekDate.setUTCDate(currentDateIST.getUTCDate() - 7);
-
-      setFrom(formatDate(lastWeekDate));
-      setTo(formatDate(currentDateIST));
-    } else if (value === '30') {
-      const lastMonthDate = new Date(currentDateIST);
-      lastMonthDate.setUTCDate(currentDateIST.getUTCDate() - 30);
-
-      setFrom(formatDate(lastMonthDate));
-      setTo(formatDate(currentDateIST));
-    } else if (value === 'FY') {
-      const currentYear =
-        currentDateIST.getUTCMonth() < 3
-          ? currentDateIST.getUTCFullYear() - 1
-          : currentDateIST.getUTCFullYear();
-
-      const fyStart = new Date(Date.UTC(currentYear, 3, 1)); // April 1st UTC
-      setFrom(formatDate(fyStart));
-      setTo(formatDate(currentDateIST));
-    } else if (value === 'month') {
-      const monthStart = new Date(
-        Date.UTC(
-          currentDateIST.getUTCFullYear(),
-          currentDateIST.getUTCMonth(),
-          1,
-        ),
-      );
-      setFrom(formatDate(monthStart));
-      setTo(formatDate(currentDateIST));
-    } else if (value === 'Yesterday') {
-      const yesterday = new Date(currentDateIST);
-      yesterday.setUTCDate(currentDateIST.getUTCDate() - 1);
-      setFrom(formatDate(yesterday));
-      setTo(formatDate(yesterday));
-    }
-  };
-
-  const logoutHandler = async () => {
-    try {
-      setLoading(true);
-      const mobile = await AsyncStorage.getItem('mobile');
-      if (!mobile) {
-        throw new Error('No mobile number found in AsyncStorage');
-      }
-
-      const userDoc = await firestore().collection('users').doc(mobile).get();
-      const userData = userDoc.data();
-
-      if (userData) {
-        userData.isActive = false;
-        userData.deviceId = '';
-        await firestore().collection('users').doc(mobile).update(userData);
-        dispatch(clearLocation());
-      } else {
-        throw new Error('User data not found in Firestore');
-      }
-      await AsyncStorage.setItem('deviceId', '');
-      await AsyncStorage.setItem('mobile', '');
-      navigation.navigate('EnterMobile');
-    } catch (error) {
-      console.error('Logout Error:', error);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const hideModal1 = () => {
-    setVisible1(false);
-  };
-
-  // Function to handle button click
-  const handleClick = async () => {
-    const newFrom = getISTDate(fromDate);
-    const newTo = getISTDate(toDate);
-
-    setFrom(newFrom);
-    setTo(newTo);
-
-    setVisible1(false); // close modal
-  };
-
-  // Export the statistics shown in the dashboard to an Excel file
-  const handleExportExcel = async () => {
-    if (!statsData || statsData.length === 0) {
-      Alert.alert('Please wait', 'Statistics are still loading.');
-      return;
-    }
-
-    // Flatten one channel into clean rows
-    const buildRows = mode =>
-      statsData.map(s => {
-        const b =
-          mode === 'web'
-            ? s.web
-            : mode === 'chatbot'
-            ? s.chatbot
-            : mode === 'ivr'
-            ? s.ivr
-            : s.combined;
-        const total = b?.total || 0;
-        return {
-          Location: s.location,
-          Total: total,
-          Appointments: b?.appointment || 0,
-          'Clinic Visits': b?.actualVisitCount || 0,
-          IPD: b?.ipd || 0,
-          'Conversion %':
-            total === 0 ? 0 : Math.round((b.appointment / total) * 100),
-        };
+  // Back: branch → dashboard → (internal) previous screen / (agency) exit.
+  useFocusEffect(
+    useCallback(() => {
+      const sub = BackHandler.addEventListener('hardwareBackPress', () => {
+        if (branch) {
+          setBranch(null);
+          return true;
+        }
+        if (internal && navigation.canGoBack()) navigation.goBack();
+        else BackHandler.exitApp();
+        return true;
       });
+      return () => sub.remove();
+    }, [branch, internal, navigation]),
+  );
 
+  const onLogout = () =>
+    Alert.alert('Log out?', 'You will need an OTP to sign in again.', [
+      { text: 'Cancel', style: 'cancel' },
+      {
+        text: 'Log out',
+        style: 'destructive',
+        onPress: () =>
+          logout({
+            dispatch,
+            navigation,
+            onStart: () => setBusy(true),
+            onFinally: () => setBusy(false),
+          }),
+      },
+    ]);
+
+  const runExport = async (sheets, fileName) => {
     try {
-      setLoading(true);
-      await exportToExcel({
-        sheets: [
-          { name: 'Combined', data: buildRows('combined') },
-          { name: 'Web', data: buildRows('web') },
-          { name: 'Bot', data: buildRows('chatbot') },
-          { name: 'IVR', data: buildRows('ivr') },
-        ],
-        fileName: `HHC_LeadStats_${from}_to_${to}`,
-      });
+      setBusy(true);
+      await exportToExcel({ sheets, fileName });
     } catch (e) {
       if (e?.message !== 'User did not share') {
         console.error('Export Error:', e);
         Alert.alert('Export failed', e?.message || 'Something went wrong');
       }
     } finally {
-      setLoading(false);
+      setBusy(false);
     }
   };
 
-  const [filterMode, setFilterMode] = useState('custom'); // 'month' | 'custom'
+  const exportDashboard = () => {
+    const all = stats?.all || [];
+    const google = stats?.google || null;
+    if (!all.length && !google) {
+      Alert.alert('Please wait', 'Statistics are still loading.');
+      return;
+    }
+    runExport(
+      [
+        ...(all.length
+          ? [
+              { name: 'Citywise', data: cityRows(all, 'combined', google) },
+              { name: 'Branchwise', data: statRows(all, 'combined', google) },
+              ...CHANNELS.map(c => ({
+                name: c.label,
+                data: statRows(all, c.key, google),
+              })),
+            ]
+          : []),
+        ...(google
+          ? [
+              {
+                name: 'Google branchwise',
+                data: googleBranchRows(google, all, 'combined'),
+              },
+              { name: 'Search terms x Branch', data: conditionRows(google) },
+              { name: 'Top search terms', data: termRows(google) },
+            ]
+          : []),
+      ],
+      `HHC_LeadStats_${from}_to_${to}`,
+    );
+  };
 
-  const generateMonthsList = () => {
-    const currentDate = new Date();
-    const months = [];
-
-    for (let i = 1; i <= 12; i++) {
-      const date = new Date(
-        currentDate.getFullYear(),
-        currentDate.getMonth() - i, // start from previous month
-        1,
+  const exportBranch = () => {
+    if (!branchData) {
+      Alert.alert('Please wait', 'Leads are still loading.');
+      return;
+    }
+    const leads = branchData.leads || [];
+    if (branchCtx.tab !== 'all') {
+      const f = branchCtx.filter;
+      const keep = l => !f || l.condition === f.value;
+      runExport(
+        [
+          {
+            name: 'Google leads',
+            data: googleLeadRows(leads, 'combined').filter((_, i) =>
+              keep(leads[i]),
+            ),
+          },
+          ...CHANNELS.filter(c => c.key !== 'ivr').map(c => ({
+            name: c.label,
+            data: googleLeadRows(
+              leads.filter(l => !f || viewOf(l, c.key)?.condition === f.value),
+              c.key,
+            ),
+          })),
+        ],
+        `HHC_GoogleLeads_${branch.replace(/\W+/g, '_')}${
+          f ? `_${f.value.replace(/\W+/g, '_')}` : ''
+        }_${from}_to_${to}`,
       );
-
-      months.push({
-        label: date.toLocaleString('default', {
-          month: 'long',
-          year: 'numeric',
-        }),
-        value: date,
-      });
+      return;
     }
-
-    return months;
+    runExport(
+      [
+        { name: 'All unique leads', data: leadRows(leads, 'combined') },
+        ...CHANNELS.map(c => ({ name: c.label, data: leadRows(leads, c.key) })),
+      ],
+      `HHC_Leads_${branch.replace(/\W+/g, '_')}_${from}_to_${to}`,
+    );
   };
 
-  const [monthsList] = useState(generateMonthsList());
-  const [selectedMonth, setSelectedMonth] = useState(monthsList[0]);
-
-  const handleMonthChange = selected => {
-    setSelectedMonth(selected);
-
-    const from = new Date(
-      selected.value.getFullYear(),
-      selected.value.getMonth(),
-      1,
-    );
-
-    const to = new Date(
-      selected.value.getFullYear(),
-      selected.value.getMonth() + 1,
-      0,
-    );
-
-    setFromDate(from);
-    setToDate(to);
-  };
+  const range = from === to ? from : `${from} → ${to}`;
+  const scopeText = scopeLabel(scope);
 
   return (
-    <SafeAreaView style={styles.maincontainer} edges={['top', 'bottom']}>
-      <View style={styles.header}>
-        <View
-          style={{ width: '50%', flexDirection: 'row', alignItems: 'center' }}
-        >
-          <TouchableOpacity
-            activeOpacity={0.6}
-            style={styles.LogoutbuttonContainer}
-            onPress={() => logoutHandler()}
-          >
-            <Image
-              style={{
-                width: 50,
-                height: 50,
-                objectFit: 'contain',
-              }}
-              source={require('../../assets/logo_hhc.png')}
+    <SafeAreaView style={s.root} edges={['top']}>
+      {/* The dashboard stays MOUNTED behind the branch view (hidden, not
+          unmounted), so coming back keeps the open city, sort and scroll
+          position and does not re-read every branch — the same reason
+          Branch Summary is never re-mounted (see SummaryTabBar.js). */}
+      <View style={[s.fill, branch && s.hidden]}>
+        {locations.length === 0 ? (
+          <>
+            <AgencyBand
+              eyebrow="LEADS & CALLS"
+              title="Lead Stats Report"
+              onBack={
+                internal && navigation.canGoBack()
+                  ? () => navigation.goBack()
+                  : undefined
+              }
+              actions={
+                internal
+                  ? []
+                  : [{ icon: 'logout', label: 'Log out', onPress: onLogout }]
+              }
             />
-          </TouchableOpacity>
-          <View
-            style={{
-              display: 'flex',
-              flexDirection: 'column',
-            }}
-          >
-            <Text
-              style={{
-                fontFamily: 'Lexend-Medium',
-                fontSize: 12,
-                color: '#000',
-              }}
-            >
-              Welcome to HHC
-            </Text>
-            {/* {locationArray && locationArray.length > 0 ? (
-              <View
-                style={{
-                  width: 150,
-                  height: 45, // 🔥 MUST be >= 44
-                  justifyContent: 'center',
-                  borderWidth: 1,
-                  borderRadius: 6,
-                }}
-              >
-                <Picker
-                  selectedValue={location}
-                  onValueChange={itemValue => dispatch(setLocation(itemValue))}
-                  style={{
-                    width: '100%',
-                    fontSize: 14,
-                    fontFamily: 'Lexend-Medium',
-                    color: '#000',
-                  }}
-                  itemStyle={{
-                    fontSize: 14,
-                    fontFamily: 'Lexend-Medium',
-                    color: '#000',
-                  }}
-                >
-                  {locationArray
-                    ?.slice()
-                    .sort((a, b) => a.localeCompare(b))
-                    .map((item, index) => (
-                      <Picker.Item
-                        style={{
-                          fontSize: 13,
-                          fontFamily: 'Lexend-Regular',
-                          color: '#000',
-                        }}
-                        key={index}
-                        label={item}
-                        value={item}
-                      />
-                    ))}
-                </Picker>
-              </View>
-            ) : (
-              <Text
-                style={{
-                  fontFamily: 'Lexend-Medium',
-                  fontSize: 14,
-                  color: '#000',
-                }}
-              >
-                {location}
+            <View style={s.noAccess}>
+              <Text style={s.noAccessText}>
+                No branches are assigned to this login, so there are no leads to
+                show.
               </Text>
-            )} */}
+            </View>
+          </>
+        ) : !ready ? (
+          <View style={[s.fill, s.wait]}>
+            <ActivityIndicator color={T.brand} />
           </View>
-        </View>
-
-        <View
-          style={{
-            width: 145,
-            height: 50,
-            justifyContent: 'center',
-            borderWidth: 1,
-            borderRadius: 4,
-            marginRight: 5,
-            padding: 0,
-          }}
-        >
-          <Picker
-            selectedValue={selectedValue}
-            style={{
-              fontSize: 12,
-              fontFamily: 'Lexend-Regular',
-              padding: 0,
-              margin: 0,
-              color: '#000',
+        ) : (
+          <LeadsStatsDashboard
+            from={from}
+            to={to}
+            locations={locations}
+            scopeKey={scopeKey}
+            onStatsLoaded={setStats}
+            onSelectBranch={(loc, ctx) => {
+              setBranchData(null);
+              setBranchCtx(ctx || { tab: 'all', filter: null });
+              setBranch(loc);
             }}
-            onValueChange={(itemValue, itemIndex) => {
-              updateValues(itemValue);
-            }}
-          >
-            <Picker.Item
-              style={{
-                fontSize: 14,
-                fontFamily: 'Lexend-Regular',
-                color: '#000',
-              }}
-              label="Today"
-              value="Today"
-            />
-            <Picker.Item
-              style={{
-                fontSize: 14,
-                fontFamily: 'Lexend-Regular',
-                color: '#000',
-              }}
-              label="Yesterday"
-              value="Yesterday"
-            />
-            <Picker.Item
-              style={{
-                fontSize: 14,
-                fontFamily: 'Lexend-Regular',
-                color: '#000',
-              }}
-              label="Last 7 Days"
-              value="7"
-            />
-            <Picker.Item
-              style={{
-                fontSize: 14,
-                fontFamily: 'Lexend-Regular',
-                color: '#000',
-              }}
-              label="Last 30 Days"
-              value="30"
-            />
-            <Picker.Item
-              style={{
-                fontSize: 14,
-                fontFamily: 'Lexend-Regular',
-                color: '#000',
-              }}
-              label="This Month"
-              value="month"
-            />
-            <Picker.Item
-              style={{
-                fontSize: 14,
-                fontFamily: 'Lexend-Regular',
-                color: '#000',
-              }}
-              label="This F.Y."
-              value="FY"
-            />
-            <Picker.Item
-              style={{
-                fontSize: 14,
-                fontFamily: 'Lexend-Regular',
-                color: '#000',
-              }}
-              label="Custom Date"
-              value="Custom"
-            />
-          </Picker>
-        </View>
+            band={
+              <AgencyBand
+                eyebrow={
+                  internal
+                    ? 'LEADS & CALLS · LEAD STATS'
+                    : 'HEALING HANDS · LEADS'
+                }
+                title="Lead Stats Report"
+                sub={`${range} · all leads, Google leads & search terms · unique leads${
+                  internal
+                    ? ` · ${locations.length} branch${
+                        locations.length === 1 ? '' : 'es'
+                      }`
+                    : ''
+                }`}
+                // Internal: a page in Leads & Calls — back, no logout.
+                onBack={
+                  internal && navigation.canGoBack()
+                    ? () => navigation.goBack()
+                    : undefined
+                }
+                scopeText={scopeText}
+                onScope={() => setScopeOpen(true)}
+                actions={[
+                  {
+                    icon: 'file-download',
+                    label: 'Export Excel',
+                    onPress: exportDashboard,
+                    disabled: !stats,
+                  },
+                  ...(internal
+                    ? []
+                    : [
+                        { icon: 'logout', label: 'Log out', onPress: onLogout },
+                      ]),
+                ]}
+              />
+            }
+          />
+        )}
       </View>
 
-      {/* ---- Export bar (active range + download button) ---- */}
-      <View style={styles.exportBar}>
-        <Text style={styles.exportRange}>
-          {from} {'  →  '} {to}
-        </Text>
-        <TouchableOpacity
-          style={[styles.exportBtn, !statsData && styles.exportBtnDisabled]}
-          onPress={handleExportExcel}
-          disabled={!statsData}
-          activeOpacity={0.7}
-        >
-          <Text style={styles.exportBtnText}>⬇ Export Excel</Text>
-        </TouchableOpacity>
-      </View>
-
-      <View style={{ flex: 1, margin: 0, padding: 0 }}>
-        <Portal>
-          <Dialog
-            visible={loading}
-            onDismiss={() => setLoading(false)}
-            style={{
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              paddingVertical: 20,
-            }}
-          >
-            <Dialog.Content>
-              <Text variant="bodyMedium">Loading..</Text>
-            </Dialog.Content>
-            <ActivityIndicator
-              animating={loading}
-              size={'large'}
-              color={'#01458e'}
-            />
-          </Dialog>
-        </Portal>
-
-        <LeadsStatsDashboard from={from} to={to} onStatsLoaded={setStatsData} />
-      </View>
-
-      {
-        //Custom Date Modal
-      }
-      <Portal>
-        <Modal
-          visible={visible1}
-          onDismiss={hideModal1}
-          contentContainerStyle={styles.modal}
-        >
-          <ScrollView>
-            {/* Header */}
-            <View style={{ alignItems: 'center', marginBottom: 10 }}>
-              <Text style={{ fontFamily: 'Lexend-Bold', fontSize: 20 }}>
-                Filter
-              </Text>
-            </View>
-
-            {/* Radio Buttons */}
-            <View style={{ marginVertical: 10 }}>
-              <RadioButton.Group
-                onValueChange={value => setFilterMode(value)}
-                value={filterMode}
-              >
-                <View
-                  style={{
-                    flexDirection: 'row',
-                    justifyContent: 'space-around',
-                  }}
-                >
-                  <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-                    <RadioButton value="month" />
-                    <Text>Month-wise</Text>
-                  </View>
-
-                  <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-                    <RadioButton value="custom" />
-                    <Text>Custom Date</Text>
-                  </View>
-                </View>
-              </RadioButton.Group>
-            </View>
-
-            {/* Month-wise List */}
-            {filterMode === 'month' && (
-              <View style={{ marginVertical: 10 }}>
-                <Text style={styles.profileInput}>Select Month</Text>
-
-                <ModalDropdown
-                  options={monthsList.map(month => month.label)}
-                  defaultValue={selectedMonth?.label || 'Select Month'}
-                  style={{
-                    borderWidth: 1,
-                    borderColor: '#ccc',
-                    borderRadius: 6,
-                    padding: 12,
-                    backgroundColor: '#fff',
-                  }}
-                  textStyle={{
-                    fontSize: 14,
-                    color: '#000',
-                  }}
-                  dropdownStyle={{
-                    width: '80%',
-                    height: 250,
-                  }}
-                  dropdownTextStyle={{
-                    fontSize: 14,
-                    padding: 10,
-                  }}
-                  onSelect={(index, value) => {
-                    const selected = monthsList[index];
-                    setSelectedMonth(selected);
-                    handleMonthChange(selected);
-                  }}
+      {!!branch && (
+        <View style={s.fill}>
+          {branchCtx.tab === 'all' ? (
+            <BranchLeadsList
+              key={branch}
+              location={branch}
+              from={from}
+              to={to}
+              scopeKey={scopeKey}
+              onLoaded={setBranchData}
+              band={
+                <AgencyBand
+                  eyebrow={`${cityOf(branch).toUpperCase()} · BRANCH LEADS`}
+                  title={branch}
+                  sub={`${range} · mobile numbers are hidden`}
+                  onBack={() => setBranch(null)}
+                  scopeText={scopeText}
+                  onScope={() => setScopeOpen(true)}
+                  actions={[
+                    {
+                      icon: 'file-download',
+                      label: 'Export Excel',
+                      onPress: exportBranch,
+                      disabled: !branchData,
+                    },
+                  ]}
                 />
-              </View>
-            )}
+              }
+            />
+          ) : (
+            // Google leads of the branch — the Ad Agency's branch page,
+            // reused unchanged (src/agency/AgencyBranchLeads.js, locked).
+            <AgencyBranchLeads
+              key={`${branch}|${branchCtx.filter?.value || ''}`}
+              location={branch}
+              from={from}
+              to={to}
+              scopeKey={scopeKey}
+              filter={branchCtx.filter}
+              onLoaded={setBranchData}
+              band={
+                <AgencyBand
+                  eyebrow={`${cityOf(branch).toUpperCase()} · GOOGLE LEADS`}
+                  title={branch}
+                  sub={`${range} · utm_source google · mobile numbers are hidden`}
+                  onBack={() => setBranch(null)}
+                  scopeText={scopeText}
+                  onScope={() => setScopeOpen(true)}
+                  actions={[
+                    {
+                      icon: 'file-download',
+                      label: 'Export Excel',
+                      onPress: exportBranch,
+                      disabled: !branchData,
+                    },
+                  ]}
+                />
+              }
+            />
+          )}
+        </View>
+      )}
 
-            {/* Custom Date Picker */}
-            {filterMode === 'custom' && (
-              <>
-                <Text style={styles.profileInput}>From:</Text>
-                <View style={styles.profileSection}>
-                  <Text
-                    style={{ padding: 10, ...styles.profileInput }}
-                    onPress={() => setOpen(true)}
-                  >
-                    {fromDate.toLocaleDateString()}
-                  </Text>
+      <ScopePicker visible={scopeOpen} onClose={() => setScopeOpen(false)} />
 
-                  <DatePicker
-                    modal
-                    mode="date"
-                    open={open}
-                    date={fromDate}
-                    onConfirm={date => {
-                      setOpen(false);
-                      setFromDate(date);
-                    }}
-                    onCancel={() => setOpen(false)}
-                    maximumDate={new Date()}
-                  />
-                </View>
-
-                <Text style={{ ...styles.profileInput, marginTop: 10 }}>
-                  To:
-                </Text>
-                <View style={styles.profileSection}>
-                  <Text
-                    style={{ padding: 10, ...styles.profileInput }}
-                    onPress={() => setOpen2(true)}
-                  >
-                    {toDate.toLocaleDateString()}
-                  </Text>
-
-                  <DatePicker
-                    modal
-                    mode="date"
-                    open={open2}
-                    date={toDate}
-                    onConfirm={date => {
-                      setOpen2(false);
-                      setToDate(date);
-                    }}
-                    onCancel={() => setOpen2(false)}
-                    minimumDate={fromDate}
-                    maximumDate={new Date()}
-                  />
-                </View>
-              </>
-            )}
-
-            {/* Buttons */}
-            <KeyboardAvoidingView
-              behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-            >
-              <View
-                style={{
-                  flexDirection: 'row',
-                  justifyContent: 'space-around',
-                  marginTop: 20,
-                }}
-              >
-                <Button
-                  mode="outlined"
-                  onPress={hideModal1}
-                  style={{ width: 150 }}
-                  textColor="#007bff"
-                >
-                  Back
-                </Button>
-
-                <Button
-                  mode="contained"
-                  onPress={handleClick}
-                  style={{ width: 150, backgroundColor: '#007bff' }}
-                >
-                  Find
-                </Button>
-              </View>
-            </KeyboardAvoidingView>
-
-            {/* Loader */}
-            <Dialog visible={loading1}>
-              <Dialog.Content style={{ alignItems: 'center' }}>
-                <Text>Processing...</Text>
-                <ActivityIndicator size="large" color="#0d7592" />
-              </Dialog.Content>
-            </Dialog>
-          </ScrollView>
-        </Modal>
-      </Portal>
+      {busy && (
+        <View style={s.busy} pointerEvents="auto">
+          <ActivityIndicator size="large" color={T.white} />
+        </View>
+      )}
     </SafeAreaView>
   );
-};
+}
 
-export default adAgencyHome;
-
-const styles = StyleSheet.create({
-  maincontainer: {
+const s = StyleSheet.create({
+  // Top inset takes the band colour so the status-bar area matches the header.
+  root: { flex: 1, backgroundColor: T.headerBg },
+  fill: { flex: 1 },
+  noAccess: {
     flex: 1,
-    width: '100%',
-    height: '100%',
-    justifyContent: 'center',
-    //alignItems: 'center',
-    backgroundColor: '#fff',
-  },
-  header: {
-    backgroundColor: '#F2FFF2FF',
-    width: '100%',
-    flexDirection: 'row',
-    justifyContent: 'space-between',
+    backgroundColor: T.canvas,
+    padding: 24,
     alignItems: 'center',
-    paddingVertical: 10,
-    borderBottomWidth: 1,
-    borderColor: '#ccc',
   },
-  // ---- Export bar ----
-  exportBar: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingHorizontal: 14,
-    paddingVertical: 8,
-  },
-  exportRange: {
+  noAccessText: {
     fontFamily: 'Lexend-Regular',
     fontSize: 13,
-    color: Colors.textMedium,
-  },
-  exportBtn: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: Colors.primary,
-    paddingHorizontal: 16,
-    paddingVertical: 9,
-    borderRadius: 10,
-  },
-  exportBtnDisabled: {
-    backgroundColor: '#9FB4C0',
-  },
-  exportBtnText: {
-    color: '#fff',
-    fontSize: 14,
-    fontFamily: 'Lexend-Medium',
-  },
-  bodycontainer: {
-    flex: 1,
-    width: '100%',
-    flexDirection: 'column',
-    justifyContent: 'flex-start',
-    alignItems: 'center',
-  },
-  subContainer1: {
-    alignSelf: 'center',
-    width: '97%',
-    backgroundColor: '#fff',
-    marginVertical: 10,
-  },
-  modal: {
-    backgroundColor: 'white',
-    paddingVertical: 50,
-    paddingHorizontal: 20,
-    marginHorizontal: 10,
-  },
-  profileSection: {
-    backgroundColor: '#FFFFFF',
-    borderRadius: 11.78,
-    marginVertical: 10,
-    padding: 8,
-    borderWidth: 1,
-  },
-  profileInput: {
-    fontFamily: 'Lexend-Medium',
-    fontSize: 16,
-    lineHeight: 19,
-    color: '#000000',
-  },
-  btnMainContainer: {
-    width: '97%',
-    flexDirection: 'row',
-    justifyContent: 'space-around',
-    alignItems: 'center',
-    marginVertical: 10,
-  },
-  buttonContainer: {
-    width: 160,
-    height: 120,
-    paddingLeft: 15,
-    display: 'flex',
-    alignItems: 'flex-start',
-    justifyContent: 'center',
-  },
-  LongbuttonContainer: {
-    width: 160,
-    height: 40,
-  },
-  LogoutbuttonContainer: {
-    width: 60,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  btnheading: {
-    fontFamily: 'Lexend-Medium',
-    color: '#000',
+    color: T.muted,
     textAlign: 'center',
-    fontSize: 32,
-    fontWeight: '600',
+    marginTop: 20,
   },
-  btnText: {
-    fontFamily: 'Lexend-Medium',
-    color: '#000',
-    fontSize: 14,
-  },
-  btnText2: {
-    fontFamily: 'Lexend-Regular',
-    fontSize: 14,
-    lineHeight: 22,
-    color: '#FFFFFFFF',
-    textAlign: 'center',
-  },
-  callingBtn: {
-    fontFamily: 'Lexend-Medium',
-    fontSize: 18,
-    lineHeight: 22,
-    marginHorizontal: 10,
-    color: '#000',
-    textAlign: 'center',
-    verticalAlign: 'middle',
-  },
-  card: {
-    width: 160,
-    height: 100,
-    backgroundColor: '#fff',
-    justifyContent: 'center',
-    alignItems: 'flex-start',
-    paddingLeft: 16,
-  },
-  cardContent: {
-    width: '100%',
-    height: '100%',
-    display: 'flex',
-    flexDirection: 'column',
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  text: {
-    fontFamily: 'Lexend-Medium',
-    fontSize: 14,
-    verticalAlign: 'middle',
-    color: '#000',
-  },
-  textHeading: {
-    fontSize: 20,
-    color: '#000',
-    backgroundColor: '#fff',
-    minWidth: 46,
-    paddingHorizontal: 3,
-    height: 40,
-    verticalAlign: 'middle',
-    borderRadius: 10,
-    fontFamily: 'Lexend-SemiBold',
-  },
-  OPDContainer: {
-    width: '100%',
-    backgroundColor: '#F1FDE9FF',
-    display: 'flex',
-    flexDirection: 'column',
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginVertical: 10,
-  },
-  OPDSubContainer: {
-    display: 'flex',
-    width: '100%',
-    height: 120,
-    justifyContent: 'space-around',
-    alignItems: 'center',
-    flexDirection: 'row',
-  },
-  btn: {
-    width: 162,
-    height: 60,
-    paddingHorizontal: 12,
-    display: 'flex',
+  hidden: { display: 'none' },
+  wait: {
+    backgroundColor: T.canvas,
     alignItems: 'center',
     justifyContent: 'center',
-    borderRadius: 4,
-    borderWidth: 0.5,
-    borderColor: '#000',
   },
-  IVRContainer: {
-    width: '100%',
-    height: 120,
-    flexDirection: 'row',
+  busy: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: 'rgba(15,26,22,0.45)',
+    alignItems: 'center',
     justifyContent: 'center',
-    alignItems: 'center',
-  },
-  IVRSubContainer1: {
-    width: '30%',
-    height: '100%',
-    flexDirection: 'column',
-    justifyContent: 'flex-end',
-    alignItems: 'center',
-  },
-  container: {
-    width: '100%',
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    justifyContent: 'space-evenly',
-    padding: 10,
-  },
-  circularButtonContainer: {
-    width: '33%',
-    alignItems: 'center',
-    marginVertical: 10,
-  },
-  iconButton: {
-    borderRadius: 50,
-  },
-  label: {
-    marginTop: 4,
-    fontSize: 13,
-    letterSpacing: 0.3,
-    fontFamily: 'Lexend-Regular',
-    color: '#000',
-  },
-  circle: {
-    width: 48,
-    height: 48,
-    borderRadius: 24,
-    //backgroundColor: '#0d7592',
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginBottom: 2,
-  },
-  image: {
-    width: 40,
-    height: 40,
-    resizeMode: 'contain',
-    //tintColor: '#fff', // Remove if you want original colors
-  },
-  status: {
-    fontSize: 14,
-    color: '#666',
-    fontWeight: '400',
-    textAlign: 'center',
-    fontFamily: 'Lexend-Regular',
-  },
-  npsCard: {
-    //width: '45%',
-    height: 90,
-    backgroundColor: '#EAF7EE',
-    borderRadius: 14,
-    paddingVertical: 16,
-    paddingHorizontal: 20,
-    alignItems: 'center',
-    marginTop: 12,
-  },
-
-  npsLabel: {
-    fontSize: 13,
-    fontWeight: '600',
-    color: '#3C6E47',
-    marginBottom: 6,
-  },
-
-  starRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-  },
-  stars: {
-    fontSize: 22,
-    color: '#F59E0B', // gold stars
-    marginRight: 8,
-  },
-  scoreText: {
-    fontSize: 16,
-    fontWeight: '700',
-    color: '#14923E',
-  },
-  // Hero band
-  heroBand: {
-    backgroundColor: Colors.primary,
-    width: '43%',
-    height: 90,
-    marginHorizontal: 14,
-    marginTop: 14,
-    borderRadius: 14,
-    paddingVertical: 14,
-    paddingHorizontal: 16,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-  },
-  heroLabel: {
-    fontSize: 11,
-    color: Colors.white,
-    letterSpacing: 0.3,
-  },
-  heroCount: {
-    fontSize: 28,
-    fontWeight: '800',
-    color: Colors.white,
-    letterSpacing: -0.5,
-    marginTop: 2,
-  },
-  heroSub: {
-    fontSize: 11,
-    color: Colors.lightGreen,
-    marginTop: 2,
-  },
-  // npsCard: {
-  //   backgroundColor: Colors.white,
-  //   borderRadius: 14,
-  //   borderWidth: 0.5,
-  //   borderColor: Colors.border,
-  //   paddingVertical: 12,
-  //   paddingHorizontal: 14,
-  //   flex: 1,
-  // },
-  // npsLabel: {
-  //   fontSize: 10,
-  //   color: Colors.textLight,
-  //   textTransform: 'uppercase',
-  //   letterSpacing: 0.4,
-  //   marginBottom: 6,
-  // },
-  npsVal: {
-    fontSize: 18,
-    fontWeight: '800',
-    color: Colors.secondary,
-    marginLeft: 4,
-  },
-  npsSub: {
-    fontSize: 10,
-    color: Colors.textLight,
-  },
-  statCardBlue: {
-    backgroundColor: Colors.lightBlue,
-    borderRadius: 12,
-    borderWidth: 0.5,
-    borderColor: 'rgba(55,138,221,0.2)',
-    paddingVertical: 10,
-    paddingHorizontal: 12,
-  },
-  statCardSmall: {
-    flex: 1,
-    borderRadius: 10,
-    borderWidth: 0.5,
-    paddingVertical: 8,
-    paddingHorizontal: 8,
   },
 });
